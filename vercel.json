@@ -5,6 +5,9 @@
   "functions": {
     "api/fred.js": {
       "maxDuration": 10
+    },
+    "api/fmp.js": {
+      "maxDuration": 10
     }
   },
   "headers": [
