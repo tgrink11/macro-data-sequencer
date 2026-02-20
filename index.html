@@ -699,47 +699,48 @@
 // ─── FRED SERIES CONFIGURATION ──────────────────────────────────────────────
 const SERIES_CONFIG = [
   // ── US (12) ──────────────────────────────────
-  // macro: 'growth' = Growth axis | 'inflation' = Inflation axis (Hedgeye Quad Model)
-  { id: 'PERMIT',                name: 'Building Permits YoY %',           region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth' },
-  { id: 'HOUST',                 name: 'Housing Starts YoY %',             region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth' },
-  { id: 'GACDFSA066MSFRBPHI',   name: 'Philly Fed Manufacturing DI',      region: 'US',    category: 'Business Survey', units: null,  inverse: false, macro: 'growth' },
-  { id: 'ICSA',                  name: 'Initial Jobless Claims (000s)',    region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
-  { id: 'UMCSENT',               name: 'Michigan Consumer Sentiment',      region: 'US',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth' },
-  { id: 'UNRATE',                name: 'Unemployment Rate',                region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
-  { id: 'CPIAUCSL',              name: 'CPI All Items YoY %',             region: 'US',    category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation' },
-  { id: 'CPILFESL',              name: 'Core CPI (Ex Food & Energy) YoY %', region: 'US',  category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation' },
-  { id: 'PAYEMS',                name: 'Nonfarm Payrolls YoY %',          region: 'US',    category: 'Labour',          units: 'pc1', inverse: false, macro: 'growth' },
-  { id: 'RSAFS',                 name: 'Retail Sales YoY %',              region: 'US',    category: 'Consumer',        units: 'pc1', inverse: false, macro: 'growth' },
-  { id: 'INDPRO',                name: 'Industrial Production YoY %',     region: 'US',    category: 'Output',          units: 'pc1', inverse: false, macro: 'growth' },
-  { id: 'DGORDER',               name: 'Durable Goods Orders YoY %',      region: 'US',    category: 'Manufacturing',   units: 'pc1', inverse: false, macro: 'growth' },
+  // macro: 'growth' | 'inflation'  (Hedgeye Quad axis)
+  // weight: 2.0 = US core  |  1.5 = Leading  |  1.0 = Standard
+  { id: 'PERMIT',                name: 'Building Permits YoY %',           region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'HOUST',                 name: 'Housing Starts YoY %',             region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'GACDFSA066MSFRBPHI',   name: 'Philly Fed Manufacturing DI',      region: 'US',    category: 'Business Survey', units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'ICSA',                  name: 'Initial Jobless Claims (000s)',    region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.5 },
+  { id: 'UMCSENT',               name: 'Michigan Consumer Sentiment',      region: 'US',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'UNRATE',                name: 'Unemployment Rate',                region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 2.0 },
+  { id: 'CPIAUCSL',              name: 'CPI All Items YoY %',             region: 'US',    category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
+  { id: 'CPILFESL',              name: 'Core CPI (Ex Food & Energy) YoY %', region: 'US',  category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
+  { id: 'PAYEMS',                name: 'Nonfarm Payrolls YoY %',          region: 'US',    category: 'Labour',          units: 'pc1', inverse: false, macro: 'growth',    weight: 2.0 },
+  { id: 'RSAFS',                 name: 'Retail Sales YoY %',              region: 'US',    category: 'Consumer',        units: 'pc1', inverse: false, macro: 'growth',    weight: 2.0 },
+  { id: 'INDPRO',                name: 'Industrial Production YoY %',     region: 'US',    category: 'Output',          units: 'pc1', inverse: false, macro: 'growth',    weight: 2.0 },
+  { id: 'DGORDER',               name: 'Durable Goods Orders YoY %',      region: 'US',    category: 'Manufacturing',   units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
 
   // ── UK (4) ───────────────────────────────────
-  { id: 'CSCICP02GBM460S',       name: 'UK Consumer Confidence (OECD)',   region: 'UK',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth' },
-  { id: 'LRHUTTTTGBM156S',       name: 'UK Unemployment Rate',            region: 'UK',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
-  { id: 'CPALTT01GBM659N',       name: 'UK CPI YoY',                     region: 'UK',    category: 'Inflation',       units: null,  inverse: false, macro: 'inflation' },
-  { id: 'GBRLOLITONOSTSAM',      name: 'UK Composite Leading Indicator',  region: 'UK',    category: 'Leading',         units: null,  inverse: false, macro: 'growth' },
+  { id: 'CSCICP02GBM460S',       name: 'UK Consumer Confidence (OECD)',   region: 'UK',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.0 },
+  { id: 'LRHUTTTTGBM156S',       name: 'UK Unemployment Rate',            region: 'UK',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.0 },
+  { id: 'CPALTT01GBM659N',       name: 'UK CPI YoY',                     region: 'UK',    category: 'Inflation',       units: null,  inverse: false, macro: 'inflation', weight: 1.0 },
+  { id: 'GBRLOLITONOSTSAM',      name: 'UK Composite Leading Indicator',  region: 'UK',    category: 'Leading',         units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
 
   // ── EU (5) ───────────────────────────────────
-  { id: 'CSCICP02EZM460S',       name: 'Eurozone Consumer Confidence',    region: 'EU',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth' },
-  { id: 'LRHUTTTTEZM156S',       name: 'Eurozone Unemployment Rate',      region: 'EU',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
-  { id: 'DEULOLITONOSTSAM',      name: 'Germany CLI',                     region: 'EU',    category: 'Leading',         units: null,  inverse: false, macro: 'growth' },
-  { id: 'FRALOLITONOSTSAM',      name: 'France CLI',                      region: 'EU',    category: 'Leading',         units: null,  inverse: false, macro: 'growth' },
-  { id: 'EA19CPALTT01GYM',       name: 'Eurozone CPI YoY',               region: 'EU',    category: 'Inflation',       units: null,  inverse: false, macro: 'inflation' },
+  { id: 'CSCICP02EZM460S',       name: 'Eurozone Consumer Confidence',    region: 'EU',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.0 },
+  { id: 'LRHUTTTTEZM156S',       name: 'Eurozone Unemployment Rate',      region: 'EU',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.0 },
+  { id: 'DEULOLITONOSTSAM',      name: 'Germany CLI',                     region: 'EU',    category: 'Leading',         units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'FRALOLITONOSTSAM',      name: 'France CLI',                      region: 'EU',    category: 'Leading',         units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'EA19CPALTT01GYM',       name: 'Eurozone CPI YoY',               region: 'EU',    category: 'Inflation',       units: null,  inverse: false, macro: 'inflation', weight: 1.0 },
 
   // ── JAPAN (5) ────────────────────────────────
-  { id: 'JPNLOLITONOSTSAM',      name: 'Japan CLI',                      region: 'JAPAN', category: 'Leading',         units: null,  inverse: false, macro: 'growth' },
-  { id: 'CPALTT01JPM659N',       name: 'Japan CPI YoY',                  region: 'JAPAN', category: 'Inflation',       units: null,  inverse: false, macro: 'inflation' },
-  { id: 'CSCICP02JPM460S',       name: 'Japan Consumer Confidence',      region: 'JAPAN', category: 'Consumer',        units: null,  inverse: false, macro: 'growth' },
-  { id: 'LRHUTTTTJPM156S',       name: 'Japan Unemployment Rate',        region: 'JAPAN', category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
-  { id: 'JPNPROINDMISMEI',       name: 'Japan Industrial Production',    region: 'JAPAN', category: 'Output',          units: 'pc1', inverse: false, macro: 'growth' },
+  { id: 'JPNLOLITONOSTSAM',      name: 'Japan CLI',                      region: 'JAPAN', category: 'Leading',         units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'CPALTT01JPM659N',       name: 'Japan CPI YoY',                  region: 'JAPAN', category: 'Inflation',       units: null,  inverse: false, macro: 'inflation', weight: 1.0 },
+  { id: 'CSCICP02JPM460S',       name: 'Japan Consumer Confidence',      region: 'JAPAN', category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.0 },
+  { id: 'LRHUTTTTJPM156S',       name: 'Japan Unemployment Rate',        region: 'JAPAN', category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.0 },
+  { id: 'JPNPROINDMISMEI',       name: 'Japan Industrial Production',    region: 'JAPAN', category: 'Output',          units: 'pc1', inverse: false, macro: 'growth',    weight: 1.0 },
 
   // ── APAC (2) ─────────────────────────────────
-  { id: 'AUSLOLITONOSTSAM',      name: 'Australia CLI',                  region: 'APAC',  category: 'Leading',         units: null,  inverse: false, macro: 'growth' },
-  { id: 'LRHUTTTTAUM156S',       name: 'Australia Unemployment Rate',    region: 'APAC',  category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
+  { id: 'AUSLOLITONOSTSAM',      name: 'Australia CLI',                  region: 'APAC',  category: 'Leading',         units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  { id: 'LRHUTTTTAUM156S',       name: 'Australia Unemployment Rate',    region: 'APAC',  category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.0 },
 
   // ── LATAM (2) ────────────────────────────────
-  { id: 'LRHUTTTTMXM156S',       name: 'Mexico Unemployment Rate',      region: 'LATAM', category: 'Labour',          units: null,  inverse: true,  macro: 'growth' },
-  { id: 'BRALOLITONOSTSAM',      name: 'Brazil CLI',                    region: 'LATAM', category: 'Leading',         units: null,  inverse: false, macro: 'growth' },
+  { id: 'LRHUTTTTMXM156S',       name: 'Mexico Unemployment Rate',      region: 'LATAM', category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.0 },
+  { id: 'BRALOLITONOSTSAM',      name: 'Brazil CLI',                    region: 'LATAM', category: 'Leading',         units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
 ];
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -798,6 +799,7 @@ function computeIndicator(config, observations) {
   const emptyResult = {
     id: config.id, name: config.name, region: config.region,
     category: config.category, inverse: config.inverse, macro: config.macro,
+    weight: config.weight || 1,
     roc: null, roc_3m: null, roc_std: null,
     seq_prior: null, seq_latest: null,
     hist_high: null, hist_low: null,
@@ -869,6 +871,7 @@ function computeIndicator(config, observations) {
   return {
     id: config.id, name: config.name, region: config.region,
     category: config.category, inverse: config.inverse, macro: config.macro,
+    weight: config.weight || 1,
     roc:        parseFloat(roc.toFixed(4)),
     roc_3m:     parseFloat(roc_3m.toFixed(4)),
     roc_std:    parseFloat(roc_std.toFixed(4)),
@@ -1049,10 +1052,16 @@ function renderStats(data) {
     return (signal * inv) / std > 0.1;  // small threshold to filter noise
   }
 
-  const growthAccel = growthData.filter(d => isAccelerating(d)).length;
-  const inflAccel   = inflData.filter(d => isAccelerating(d)).length;
-  const growthBreadth = growthData.length > 0 ? growthAccel / growthData.length : 0.5;
-  const inflBreadth   = inflData.length > 0 ? inflAccel / inflData.length : 0.5;
+  // Weighted breadth: US core (2x) and leading (1.5x) indicators
+  // carry more influence than standard international indicators (1x).
+  const growthAccelCount = growthData.filter(d => isAccelerating(d)).length;
+  const inflAccelCount   = inflData.filter(d => isAccelerating(d)).length;
+  const growthWeightTotal = growthData.reduce((s, d) => s + (d.weight || 1), 0);
+  const growthAccelWeight = growthData.filter(d => isAccelerating(d)).reduce((s, d) => s + (d.weight || 1), 0);
+  const inflWeightTotal   = inflData.reduce((s, d) => s + (d.weight || 1), 0);
+  const inflAccelWeight   = inflData.filter(d => isAccelerating(d)).reduce((s, d) => s + (d.weight || 1), 0);
+  const growthBreadth = growthWeightTotal > 0 ? growthAccelWeight / growthWeightTotal : 0.5;
+  const inflBreadth   = inflWeightTotal > 0 ? inflAccelWeight / inflWeightTotal : 0.5;
 
   // Determine quad: >55% accelerating = "Up", <45% = "Down"
   const gUp = growthBreadth > 0.55;
@@ -1119,13 +1128,13 @@ function renderStats(data) {
     </div>
     <div class="stat-card">
       <div class="stat-label">GROWTH BREADTH</div>
-      <div class="stat-value ${growthBreadth >= 0.5 ? 'green' : 'red'}">${growthAccel}/${growthData.length}</div>
-      <div class="stat-sub">${gPct}% accelerating · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
+      <div class="stat-value ${growthBreadth >= 0.5 ? 'green' : 'red'}">${gPct}%</div>
+      <div class="stat-sub">${growthAccelCount}/${growthData.length} accel (wtd) · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">INFLATION BREADTH</div>
-      <div class="stat-value ${inflBreadth <= 0.5 ? 'green' : 'red'}">${inflAccel}/${inflData.length}</div>
-      <div class="stat-sub">${iPct}% accelerating · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
+      <div class="stat-value ${inflBreadth <= 0.5 ? 'green' : 'red'}">${iPct}%</div>
+      <div class="stat-sub">${inflAccelCount}/${inflData.length} accel (wtd) · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card" style="flex:2.5;background:var(--bg2);">
       <div class="stat-label">HEDGEYE MACRO REGIME</div>
@@ -1241,7 +1250,7 @@ function showTooltip(e, i) {
   tt.innerHTML = `
     <div class="tooltip-title">${d.name}</div>
     <div class="tooltip-row"><span>Region</span><span class="tooltip-val">${d.region}</span></div>
-    <div class="tooltip-row"><span>Macro Axis</span><span class="tooltip-val">${d.macro === 'inflation' ? 'Inflation' : 'Growth'}</span></div>
+    <div class="tooltip-row"><span>Macro Axis</span><span class="tooltip-val">${d.macro === 'inflation' ? 'Inflation' : 'Growth'} · ${d.weight >= 2 ? 'Core 2×' : d.weight >= 1.5 ? 'Leading 1.5×' : 'Standard 1×'}</span></div>
     <div class="tooltip-row"><span>YoY Trend</span><span class="tooltip-val" style="color:${accelColor}">${accelDir}</span></div>
     <div class="tooltip-row"><span>Score (z-norm)</span><span class="tooltip-val" style="color:${scoreColor}">${d.score.toFixed(2)}</span></div>
     <div class="tooltip-row"><span>Monthly Accel (2nd Deriv)</span><span class="tooltip-val">${fmt(d.roc)}</span></div>
@@ -1335,7 +1344,9 @@ async function fetchAndCompute() {
       computed.push({
         id: cfg.id, name: cfg.name, region: cfg.region,
         category: cfg.category, inverse: cfg.inverse, macro: cfg.macro,
-        roc: null, seq_prior: null, seq_latest: null,
+        weight: cfg.weight || 1,
+        roc: null, roc_3m: null, roc_std: null,
+        seq_prior: null, seq_latest: null,
         hist_high: null, hist_low: null,
         trend_12: null, trend_6: null, spark: [],
       });
