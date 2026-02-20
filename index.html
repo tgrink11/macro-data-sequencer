@@ -8,25 +8,25 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #080c10;
-    --bg2: #0d1117;
-    --bg3: #141b24;
-    --border: #1e2d3d;
-    --text: #c9d1d9;
-    --text-dim: #586069;
-    --text-bright: #e6edf3;
-    --accent: #58a6ff;
-    --red-5: #ff2d55;
-    --red-4: #e63950;
-    --red-3: #c0392b;
-    --red-2: #8b2635;
-    --red-1: #4a1520;
-    --grn-5: #00e676;
-    --grn-4: #2ecc71;
-    --grn-3: #27ae60;
-    --grn-2: #1a6b3c;
-    --grn-1: #0d3320;
-    --neutral: #2a3340;
+    --bg: #f5f7fa;
+    --bg2: #ffffff;
+    --bg3: #f0f2f5;
+    --border: #d0d5dd;
+    --text: #1a1a1a;
+    --text-dim: #667085;
+    --text-bright: #1a1a1a;
+    --accent: #114f78;
+    --red-5: #912323;
+    --red-4: #912323;
+    --red-3: #b03030;
+    --red-2: #c05050;
+    --red-1: #e0b0b0;
+    --grn-5: #0a7a2e;
+    --grn-4: #0a7a2e;
+    --grn-3: #0d9435;
+    --grn-2: #30a858;
+    --grn-1: #b0e0c0;
+    --neutral: #e4e7ec;
     --font-mono: 'IBM Plex Mono', monospace;
     --font-sans: 'IBM Plex Sans', sans-serif;
   }
@@ -58,18 +58,18 @@
 
   .logo {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--accent);
     letter-spacing: 3px;
     text-transform: uppercase;
     border: 1px solid var(--accent);
-    padding: 4px 10px;
+    padding: 5px 12px;
   }
 
   .header-title {
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--text-bright);
     letter-spacing: 1px;
@@ -77,7 +77,7 @@
 
   .header-subtitle {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-dim);
     letter-spacing: 1px;
     margin-top: 2px;
@@ -88,7 +88,7 @@
     align-items: center;
     gap: 6px;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 12px;
     color: var(--grn-4);
     letter-spacing: 1px;
   }
@@ -118,7 +118,7 @@
 
   .control-label {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 11px;
     color: var(--text-dim);
     letter-spacing: 2px;
     text-transform: uppercase;
@@ -129,31 +129,33 @@
 
   .filter-btn {
     font-family: var(--font-mono);
-    font-size: 10px;
-    padding: 4px 10px;
+    font-size: 12px;
+    padding: 5px 12px;
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-dim);
     cursor: pointer;
     transition: all 0.15s;
     letter-spacing: 0.5px;
+    border-radius: 4px;
   }
 
   .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
   .filter-btn.active-red { background: var(--red-4); border-color: var(--red-4); color: #fff; }
   .filter-btn.active-grn { background: var(--grn-3); border-color: var(--grn-3); color: #fff; }
 
   .search-box {
     font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 4px 12px;
-    background: var(--bg3);
+    font-size: 13px;
+    padding: 5px 12px;
+    background: var(--bg2);
     border: 1px solid var(--border);
     color: var(--text);
     outline: none;
-    width: 200px;
+    width: 220px;
     transition: border-color 0.15s;
+    border-radius: 4px;
   }
 
   .search-box:focus { border-color: var(--accent); }
@@ -161,13 +163,14 @@
 
   .sort-select {
     font-family: var(--font-mono);
-    font-size: 10px;
-    padding: 4px 10px;
-    background: var(--bg3);
+    font-size: 12px;
+    padding: 5px 12px;
+    background: var(--bg2);
     border: 1px solid var(--border);
     color: var(--text);
     outline: none;
     cursor: pointer;
+    border-radius: 4px;
   }
 
   /* Stats bar */
@@ -191,7 +194,7 @@
 
   .stat-label {
     font-family: var(--font-mono);
-    font-size: 8px;
+    font-size: 10px;
     color: var(--text-dim);
     letter-spacing: 2px;
     text-transform: uppercase;
@@ -199,7 +202,7 @@
 
   .stat-value {
     font-family: var(--font-mono);
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 600;
     color: var(--text-bright);
     line-height: 1;
@@ -211,7 +214,7 @@
 
   .stat-sub {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 11px;
     color: var(--text-dim);
   }
 
@@ -225,14 +228,15 @@
 
   .regime-indicator {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
-    padding: 4px 12px;
+    padding: 5px 14px;
     letter-spacing: 1px;
+    border-radius: 4px;
   }
 
-  .regime-q3 { background: rgba(255,45,85,0.15); color: var(--red-4); border: 1px solid var(--red-4); }
-  .regime-desc { font-size: 10px; color: var(--text-dim); font-family: var(--font-mono); }
+  .regime-q3 { background: #fce8e8; color: var(--red-4); border: 1px solid var(--red-4); }
+  .regime-desc { font-size: 12px; color: var(--text-dim); font-family: var(--font-mono); }
 
   /* Table */
   .table-container {
@@ -244,7 +248,7 @@
     width: 100%;
     border-collapse: collapse;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 13px;
   }
 
   thead tr {
@@ -255,24 +259,24 @@
   }
 
   .th-group {
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 2px;
     text-transform: uppercase;
     color: var(--text-dim);
-    padding: 6px 12px;
+    padding: 8px 14px;
     text-align: center;
     border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border);
   }
 
   th {
-    font-size: 8px;
+    font-size: 11px;
     letter-spacing: 1px;
     color: var(--text-dim);
-    padding: 6px 10px;
+    padding: 8px 12px;
     text-align: center;
     border-bottom: 2px solid var(--border);
-    border-right: 1px solid rgba(30,45,61,0.5);
+    border-right: 1px solid var(--border);
     cursor: pointer;
     white-space: nowrap;
     font-weight: 500;
@@ -284,18 +288,18 @@
 
   th.indicator-col {
     text-align: left;
-    width: 260px;
-    min-width: 260px;
+    width: 300px;
+    min-width: 300px;
   }
 
   td {
     padding: 0;
-    border-bottom: 1px solid rgba(30,45,61,0.4);
-    border-right: 1px solid rgba(30,45,61,0.3);
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
     vertical-align: middle;
   }
 
-  tr.data-row:hover td { background: rgba(88,166,255,0.03); }
+  tr.data-row:hover td { background: rgba(17,79,120,0.04); }
   tr.data-row { animation: fadeIn 0.3s ease both; }
 
   @keyframes fadeIn {
@@ -307,22 +311,22 @@
     padding: 10px 16px;
     text-align: left;
     color: var(--text);
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 400;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 260px;
+    max-width: 300px;
     font-family: var(--font-sans);
     letter-spacing: 0.2px;
   }
 
   .indicator-region {
-    font-size: 8px;
+    font-size: 10px;
     color: var(--text-dim);
     letter-spacing: 1px;
     text-transform: uppercase;
-    margin-top: 1px;
+    margin-top: 2px;
     font-family: var(--font-mono);
   }
 
@@ -335,11 +339,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 38px;
+    height: 42px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
-    padding: 0 8px;
+    padding: 0 10px;
   }
 
   /* Score cell */
@@ -358,7 +362,7 @@
 
   .score-num {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
   }
 
@@ -383,18 +387,18 @@
 
   .sparkline-canvas { display: block; }
 
-  /* Color gradient helpers */
-  .c-r5 { background-color: rgba(255,45,85,0.90); color: #fff; }
-  .c-r4 { background-color: rgba(230,57,80,0.75); color: #fff; }
-  .c-r3 { background-color: rgba(192,57,43,0.60); color: #ffb3b3; }
-  .c-r2 { background-color: rgba(139,38,53,0.40); color: #ff9494; }
-  .c-r1 { background-color: rgba(74,21,32,0.25); color: #ff7070; }
-  .c-n  { background-color: rgba(42,51,64,0.30); color: var(--text-dim); }
-  .c-g1 { background-color: rgba(13,51,32,0.25); color: #70ffaa; }
-  .c-g2 { background-color: rgba(26,107,60,0.40); color: #5cffa0; }
-  .c-g3 { background-color: rgba(39,174,96,0.55); color: #d4ffea; }
-  .c-g4 { background-color: rgba(46,204,113,0.75); color: #fff; }
-  .c-g5 { background-color: rgba(0,230,118,0.90); color: #000; }
+  /* Color gradient helpers — light theme */
+  .c-r5 { background-color: #fce8e8; color: #912323; }
+  .c-r4 { background-color: #fce8e8; color: #912323; }
+  .c-r3 { background-color: #fdeeee; color: #b03030; }
+  .c-r2 { background-color: #fdf3f3; color: #c05050; }
+  .c-r1 { background-color: #fef8f8; color: #d07070; }
+  .c-n  { background-color: #f0f2f5; color: var(--text-dim); }
+  .c-g1 { background-color: #f2faf5; color: #30a858; }
+  .c-g2 { background-color: #ecf7f0; color: #0d9435; }
+  .c-g3 { background-color: #e6f5ea; color: #0a7a2e; }
+  .c-g4 { background-color: #daf0e0; color: #0a7a2e; }
+  .c-g5 { background-color: #d0ebd6; color: #0a7a2e; }
 
   .section-divider {
     border-top: 2px solid var(--border) !important;
@@ -402,9 +406,9 @@
 
   .region-header td {
     background: var(--bg3);
-    padding: 4px 16px;
+    padding: 6px 16px;
     font-family: var(--font-mono);
-    font-size: 8px;
+    font-size: 10px;
     letter-spacing: 3px;
     text-transform: uppercase;
     color: var(--text-dim);
@@ -414,16 +418,17 @@
   /* Tooltip */
   .tooltip {
     position: fixed;
-    background: var(--bg3);
+    background: #ffffff;
     border: 1px solid var(--border);
     color: var(--text);
     font-family: var(--font-mono);
-    font-size: 10px;
-    padding: 10px 14px;
+    font-size: 12px;
+    padding: 12px 16px;
     pointer-events: none;
     z-index: 1000;
-    max-width: 240px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    max-width: 280px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    border-radius: 6px;
     display: none;
   }
 
@@ -431,7 +436,7 @@
     font-weight: 600;
     color: var(--text-bright);
     margin-bottom: 6px;
-    font-size: 11px;
+    font-size: 13px;
     border-bottom: 1px solid var(--border);
     padding-bottom: 4px;
   }
@@ -440,8 +445,8 @@
     display: flex;
     justify-content: space-between;
     gap: 16px;
-    margin-top: 3px;
-    font-size: 9px;
+    margin-top: 4px;
+    font-size: 11px;
     color: var(--text-dim);
   }
 
@@ -453,16 +458,17 @@
     padding: 60px;
     font-family: var(--font-mono);
     color: var(--text-dim);
-    font-size: 11px;
+    font-size: 13px;
     letter-spacing: 1px;
   }
 
   .count-badge {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: 11px;
     color: var(--text-dim);
-    padding: 2px 8px;
+    padding: 3px 10px;
     border: 1px solid var(--border);
+    border-radius: 4px;
     letter-spacing: 1px;
     margin-left: auto;
   }
@@ -480,8 +486,8 @@
   </div>
   <div style="display:flex;align-items:center;gap:24px;">
     <div>
-      <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-dim);letter-spacing:2px;">SNAPSHOT DATE</div>
-      <div style="font-family:var(--font-mono);font-size:12px;color:var(--text-bright);">JAN–MAR 2021</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">SNAPSHOT DATE</div>
+      <div style="font-family:var(--font-mono);font-size:14px;color:var(--text-bright);">JAN–MAR 2021</div>
     </div>
     <div class="live-badge">
       <div class="live-dot"></div>
@@ -521,7 +527,7 @@
 <div class="table-container">
 <table id="main-table">
 <colgroup>
-  <col style="width:260px">
+  <col style="width:300px">
   <col style="width:40px">
   <col style="width:65px">
   <col style="width:65px">
@@ -906,7 +912,7 @@ function drawSparkline(canvas, data) {
   const last = data[data.length - 1];
   const first = data[0];
   const isUp = last >= first;
-  const color = isUp ? '#2ecc71' : '#ff2d55';
+  const color = isUp ? '#0a7a2e' : '#912323';
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.lineJoin = 'round';
@@ -916,7 +922,7 @@ function drawSparkline(canvas, data) {
   pts.forEach(p => ctx.lineTo(p[0], p[1]));
   ctx.lineTo(pts[pts.length-1][0], h);
   ctx.closePath();
-  ctx.fillStyle = isUp ? 'rgba(46,204,113,0.1)' : 'rgba(255,45,85,0.1)';
+  ctx.fillStyle = isUp ? 'rgba(10,122,46,0.1)' : 'rgba(145,35,35,0.1)';
   ctx.fill();
   // line
   ctx.beginPath();
@@ -984,7 +990,7 @@ function renderStats(data) {
     <div class="stat-card" style="flex:2;background:var(--bg2);">
       <div class="stat-label">MACRO REGIME SIGNAL</div>
       <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
-        <div class="regime-indicator ${avgScore < -0.5 ? 'regime-q3' : ''}" style="${avgScore >= 0.5 ? 'background:rgba(46,204,113,0.15);color:var(--grn-4);border:1px solid var(--grn-4);' : avgScore < -0.5 ? '' : 'background:rgba(88,166,255,0.1);color:var(--accent);border:1px solid var(--accent);'}">
+        <div class="regime-indicator ${avgScore < -0.5 ? 'regime-q3' : ''}" style="${avgScore >= 0.5 ? 'background:#e6f5ea;color:var(--grn-4);border:1px solid var(--grn-4);' : avgScore < -0.5 ? '' : 'background:#e8eff5;color:var(--accent);border:1px solid var(--accent);'}">
           ${avgScore >= 0.5 ? 'QUAD 2 — RISK-ON' : avgScore < -0.5 ? 'QUAD 3 — RISK-OFF' : 'TRANSITIONAL'}
         </div>
         <div class="regime-desc">${avgScore >= 0.5 ? 'Growth accelerating · Inflation rising · Equities, Commodities favored' : avgScore < -0.5 ? 'Growth slowing · Deceleration dominating · Bonds, Gold, Defensives favored' : 'Mixed signals · Regime transition in progress · Selective positioning advised'}</div>
