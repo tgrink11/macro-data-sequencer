@@ -1,5 +1,19 @@
 {
   "buildCommand": null,
   "outputDirectory": ".",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "functions": {
+    "api/fred.js": {
+      "maxDuration": 10
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET" }
+      ]
+    }
+  ]
 }

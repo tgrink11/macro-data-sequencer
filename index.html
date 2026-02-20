@@ -472,22 +472,95 @@
     letter-spacing: 1px;
     margin-left: auto;
   }
+
+  /* Loading overlay */
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(245,247,250,0.95);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    transition: opacity 0.4s;
+  }
+  .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+  .loading-bar-track {
+    width: 300px; height: 4px;
+    background: var(--border);
+    border-radius: 2px; overflow: hidden;
+  }
+  .loading-bar-fill {
+    height: 100%; width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.3s;
+  }
+  .loading-text {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+  }
+  .error-banner {
+    background: #fce8e8;
+    border: 1px solid var(--red-3);
+    color: var(--red-4);
+    padding: 8px 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    display: none;
+  }
+  .last-updated {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+  .refresh-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    margin-top: 2px;
+  }
+  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
+
+<div class="loading-overlay" id="loading-overlay">
+  <div class="logo">MDS</div>
+  <div class="loading-text">LOADING FRED DATA</div>
+  <div class="loading-bar-track">
+    <div class="loading-bar-fill" id="loading-bar"></div>
+  </div>
+  <div class="loading-text" id="loading-status">Initializing...</div>
+</div>
 
 <div class="header">
   <div class="header-left">
     <div class="logo">MDS</div>
     <div>
       <div class="header-title">MACRO DATA SEQUENCER</div>
-      <div class="header-subtitle">HEDGEYE RISK MANAGEMENT · GLOBAL INDICATOR TRACKER</div>
+      <div class="header-subtitle">FEDERAL RESERVE ECONOMIC DATA · GLOBAL INDICATOR TRACKER</div>
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:24px;">
     <div>
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">SNAPSHOT DATE</div>
-      <div style="font-family:var(--font-mono);font-size:14px;color:var(--text-bright);">JAN–MAR 2021</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">DATA SOURCE</div>
+      <div style="font-family:var(--font-mono);font-size:14px;color:var(--text-bright);">FRED API · LIVE</div>
+    </div>
+    <div>
+      <div class="last-updated" id="last-updated">—</div>
+      <button class="refresh-btn" onclick="refreshData()" title="Refresh data from FRED">REFRESH</button>
     </div>
     <div class="live-badge">
       <div class="live-dot"></div>
@@ -518,6 +591,8 @@
   <input class="search-box" type="text" placeholder="Search indicators..." oninput="doSearch(this.value)" id="search-input">
   <span class="count-badge" id="count-badge">30 indicators</span>
 </div>
+
+<div class="error-banner" id="error-banner"></div>
 
 <!-- Stats Bar -->
 <div class="stats-bar" id="stats-bar">
@@ -558,300 +633,160 @@
 <div class="tooltip" id="tooltip"></div>
 
 <script>
-// ─── DATA ───────────────────────────────────────────────────────────────────
-const indicators = [
-  {
-    name: "CBI MTE Full Volume of Total Order Book Balance",
-    region: "UK", category: "Business Survey",
-    roc: -13, seq_prior: -25, seq_latest: -38,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "4/30/2020",
-    trend_12: -41.5, trend_6: -38.17, q_dec: -33, q_mar: -38,
-    spark: [-20,-28,-35,-38,-36,-40,-38,-42,-38]
-  },
-  {
-    name: "CBI MTE Full Avg Selling Prices Next 3M Balance",
-    region: "UK", category: "Business Survey",
-    roc: 4, seq_prior: 0, seq_latest: 4,
-    hist_high: "3/31/2020", hist_low: "12/31/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: -3.17, trend_6: -1, q_dec: -1.33, q_mar: 4,
-    spark: [-2,-1,0,1,0,2,3,2,4]
-  },
-  {
-    name: "CBI ITS Q1 Quarterly Optimism Balance",
-    region: "UK", category: "Business Survey",
-    roc: 22, seq_prior: 0, seq_latest: -22,
-    hist_high: "10/31/2020", hist_low: "4/30/2020",
-    fast_since: "10/31/2020", slow_since: "4/30/2020",
-    trend_12: -18.5, trend_6: -21.83, q_dec: null, q_mar: -22,
-    spark: [-30,-22,-18,-20,-22,-24,-20,-22,-22]
-  },
-  {
-    name: "Mexico Unemployment Rate (Workers 15+) ENOE NSA",
-    region: "LATAM", category: "Labour",
-    roc: -0.57, seq_prior: 4.37, seq_latest: 3.8,
-    hist_high: "11/30/2020", hist_low: "3/31/2020",
-    fast_since: "11/30/2020", slow_since: "3/31/2020",
-    trend_12: 4.44, trend_6: 4.77, q_dec: 5.24, q_mar: 4.29,
-    spark: [5.1,4.9,4.8,4.7,4.5,4.3,4.1,3.9,3.8]
-  },
-  {
-    name: "Private Housing Authorized by Bldg Permits YoY %",
-    region: "US", category: "Housing",
-    roc: 9.02, seq_prior: 8.28, seq_latest: 17.3,
-    hist_high: "10/31/2019", hist_low: "11/30/2020",
-    fast_since: "7/31/2020", slow_since: "11/30/2020",
-    trend_12: 3.64, trend_6: 7.45, q_dec: 5.47, q_mar: 9.43,
-    spark: [2,4,6,8,10,12,14,16,17.3]
-  },
-  {
-    name: "US New Privately Owned Housing Units Started YoY %",
-    region: "US", category: "Housing",
-    roc: -9.93, seq_prior: 15.1, seq_latest: 5.17,
-    hist_high: "11/30/2020", hist_low: "8/31/2020",
-    fast_since: "11/30/2020", slow_since: "8/31/2020",
-    trend_12: 8.17, trend_6: 11.61, q_dec: 11.73, q_mar: 11.48,
-    spark: [14,15,12,10,9,8,7,6,5.17]
-  },
-  {
-    name: "Philadelphia Fed Business Outlook Survey DI",
-    region: "US", category: "Business Survey",
-    roc: 17.4, seq_prior: 9.1, seq_latest: 26.5,
-    hist_high: "2/20/2020", hist_low: "12/31/2020",
-    fast_since: "6/30/2020", slow_since: "12/31/2020",
-    trend_12: 8.78, trend_6: 19.12, q_dec: 18.13, q_mar: 26.5,
-    spark: [5,8,12,15,18,20,22,24,26.5]
-  },
-  {
-    name: "Bloomberg US National Economy Expectations DI",
-    region: "US", category: "Consumer",
-    roc: 1.1, seq_prior: 38.5, seq_latest: 39,
-    hist_high: "11/30/2020", hist_low: "12/31/2020",
-    fast_since: "10/31/2020", slow_since: "12/31/2020",
-    trend_12: 40.17, trend_6: 40.17, q_dec: 41.5, q_mar: 39,
-    spark: [40,41,40,39,41,40,39,39,39]
-  },
-  {
-    name: "European Commission Consumer Confidence Eurozone",
-    region: "EU", category: "Consumer",
-    roc: -1.7, seq_prior: -13.8, seq_latest: -15.5,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: -14.98, trend_6: -15.17, q_dec: -15.63, q_mar: -15.5,
-    spark: [-13,-13.5,-14,-14.5,-15,-15.2,-15.4,-15.5,-15.5]
-  },
-  {
-    name: "Markit Australia Manufacturing PMI SA",
-    region: "APAC", category: "PMI",
-    roc: 1.5, seq_prior: 55.7, seq_latest: 57.2,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 52.09, trend_6: 55.32, q_dec: 55.23, q_mar: 57.8,
-    spark: [50,52,53,54,55,55.5,56,56.5,57.2]
-  },
-  {
-    name: "Markit Australia Services PMI SA",
-    region: "APAC", category: "PMI",
-    roc: -1.2, seq_prior: 57, seq_latest: 55.8,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "8/31/2020",
-    trend_12: 47.22, trend_6: 53.57, q_dec: 55.27, q_mar: 55.8,
-    spark: [52,54,55,56,57,56.5,56,55.9,55.8]
-  },
-  {
-    name: "Japan CPI Nationwide YoY",
-    region: "JAPAN", category: "Inflation",
-    roc: -0.3, seq_prior: -0.9, seq_latest: -1.2,
-    hist_high: "11/30/2020", hist_low: "1/31/2010",
-    fast_since: "9/30/2020", slow_since: "11/30/2020",
-    trend_12: -0.02, trend_6: -0.33, q_dec: 0.17, q_mar: -0.83,
-    spark: [-0.4,-0.5,-0.6,-0.7,-0.8,-0.9,-1.0,-1.1,-1.2]
-  },
-  {
-    name: "Japan CPI Nationwide Ex Fresh Food YoY",
-    region: "JAPAN", category: "Inflation",
-    roc: -0.1, seq_prior: -0.9, seq_latest: -1,
-    hist_high: "11/30/2020", hist_low: "9/30/2010",
-    fast_since: "9/30/2020", slow_since: "11/30/2020",
-    trend_12: -0.16, trend_6: -0.55, q_dec: -0.23, q_mar: -0.87,
-    spark: [-0.3,-0.4,-0.5,-0.6,-0.7,-0.8,-0.9,-0.95,-1]
-  },
-  {
-    name: "GFK UK Consumer Confidence Indicator",
-    region: "UK", category: "Consumer",
-    roc: -2, seq_prior: -26, seq_latest: -28,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "10/31/2020",
-    trend_12: -25.92, trend_6: -28.33, q_dec: -30, q_mar: -28,
-    spark: [-24,-25,-26,-27,-27.5,-28,-28,-28,-28]
-  },
-  {
-    name: "Jibun Bank Japan Manufacturing PMI SA",
-    region: "JAPAN", category: "PMI",
-    roc: -0.3, seq_prior: 50, seq_latest: 49.7,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "5/31/2020",
-    trend_12: 45.88, trend_6: 48.72, q_dec: 49.23, q_mar: 49.7,
-    spark: [47,48,49,50,49.5,49.2,49.5,49.6,49.7]
-  },
-  {
-    name: "Jibun Bank Japan Service PMI Business Activity SA",
-    region: "JAPAN", category: "PMI",
-    roc: -2, seq_prior: 47.7, seq_latest: 45.7,
-    hist_high: "8/31/2020", hist_low: "4/30/2020",
-    fast_since: "12/31/2020", slow_since: "4/30/2020",
-    trend_12: 41.65, trend_6: 45.8, q_dec: 47.73, q_mar: 45.7,
-    spark: [48,47,46,46.5,47,47.5,47,46,45.7]
-  },
-  {
-    name: "Australia Retail Sales YoY SA",
-    region: "APAC", category: "Consumer",
-    roc: null, seq_prior: null, seq_latest: null,
-    hist_high: "12/31/2020", hist_low: "10/31/2020",
-    fast_since: null, slow_since: null,
-    trend_12: null, trend_6: null, q_dec: null, q_mar: null,
-    spark: [3,4,3,5,4,3,4,3,4]
-  },
-  {
-    name: "UK Retail Sales Ex Auto Fuel Chained Volume YoY SA",
-    region: "UK", category: "Consumer",
-    roc: 1.1, seq_prior: 5.3, seq_latest: 6.4,
-    hist_high: "10/31/2020", hist_low: "11/30/2020",
-    fast_since: "10/31/2020", slow_since: "11/30/2020",
-    trend_12: 0.31, trend_6: 5.57, q_dec: 4.6, q_mar: 6.53,
-    spark: [2,3,4,5,5.5,6,6.2,6.3,6.4]
-  },
-  {
-    name: "Markit France Manufacturing PMI SA",
-    region: "EU", category: "PMI",
-    roc: 0.4, seq_prior: 51.1, seq_latest: 51.5,
-    hist_high: "7/31/2020", hist_low: "12/31/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 47.86, trend_6: 50.75, q_dec: 50.67, q_mar: 51.5,
-    spark: [49,50,51,51.2,51,51.3,51.4,51.4,51.5]
-  },
-  {
-    name: "Markit France Services PMI SA",
-    region: "EU", category: "PMI",
-    roc: -2.6, seq_prior: 49.1, seq_latest: 46.5,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 42.43, trend_6: 46.65, q_dec: 44.8, q_mar: 46.5,
-    spark: [49,48,48,47,47,46.8,46.6,46.5,46.5]
-  },
-  {
-    name: "Markit/BME Germany Manufacturing PMI SA",
-    region: "EU", category: "PMI",
-    roc: -1.3, seq_prior: 58.3, seq_latest: 57,
-    hist_high: "12/31/2020", hist_low: "9/30/2020",
-    fast_since: "12/31/2020", slow_since: "4/30/2020",
-    trend_12: 50.05, trend_6: 56.65, q_dec: 58.1, q_mar: 57,
-    spark: [55,56,57,58,58.5,58.3,58,57.5,57]
-  },
-  {
-    name: "Markit Germany Services PMI Business Activity SA",
-    region: "EU", category: "PMI",
-    roc: -0.2, seq_prior: 47, seq_latest: 46.8,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 44.03, trend_6: 48.73, q_dec: 47.5, q_mar: 46.8,
-    spark: [46,47,47.5,47,47,46.9,46.8,46.8,46.8]
-  },
-  {
-    name: "Markit Eurozone Manufacturing PMI SA",
-    region: "EU", category: "PMI",
-    roc: -0.5, seq_prior: 55.2, seq_latest: 54.7,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 49.13, trend_6: 53.98, q_dec: 54.6, q_mar: 54.7,
-    spark: [52,53,54,55,55.2,55,54.8,54.7,54.7]
-  },
-  {
-    name: "Markit Eurozone Services PMI SA",
-    region: "EU", category: "PMI",
-    roc: -1.4, seq_prior: 46.4, seq_latest: 45,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 41.92, trend_6: 46.43, q_dec: 45, q_mar: 45,
-    spark: [46,46.5,46.4,46.2,46,45.5,45.2,45,45]
-  },
-  {
-    name: "Markit/CIPS UK Manufacturing PMI SA",
-    region: "UK", category: "PMI",
-    roc: -4.6, seq_prior: 57.5, seq_latest: 52.9,
-    hist_high: "12/31/2020", hist_low: "6/30/2020",
-    fast_since: "12/31/2020", slow_since: "4/30/2020",
-    trend_12: 50.43, trend_6: 54.51, q_dec: 55.6, q_mar: 52.9,
-    spark: [56,57,57.5,56,55,54,53.5,53,52.9]
-  },
-  {
-    name: "Markit/CIPS UK Services PMI Business Activity SA",
-    region: "UK", category: "PMI",
-    roc: -10.6, seq_prior: 49.4, seq_latest: 38.8,
-    hist_high: "12/31/2020", hist_low: "5/31/2020",
-    fast_since: "12/31/2020", slow_since: "4/30/2020",
-    trend_12: 44.65, trend_6: 50.55, q_dec: 49.47, q_mar: 38.8,
-    spark: [49,49,49.4,48,45,43,41,40,38.8]
-  },
-  {
-    name: "Markit US Manufacturing PMI SA",
-    region: "US", category: "PMI",
-    roc: 2.1, seq_prior: 57.1, seq_latest: 59.2,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 54.3, trend_6: 57.8, q_dec: 57.5, q_mar: 59.2,
-    spark: [55,56,57,57.5,58,58.5,59,59,59.2]
-  },
-  {
-    name: "ISM US Manufacturing PMI",
-    region: "US", category: "PMI",
-    roc: 3.2, seq_prior: 60.5, seq_latest: 60.8,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 55.4, trend_6: 59.2, q_dec: 60.1, q_mar: 60.8,
-    spark: [57,58,59,60,60.5,60.3,60.5,60.6,60.8]
-  },
-  {
-    name: "US Initial Jobless Claims (000s) SA",
-    region: "US", category: "Labour",
-    roc: -25, seq_prior: 848, seq_latest: 779,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "4/18/2020",
-    trend_12: 693, trend_6: 812, q_dec: 830, q_mar: 779,
-    spark: [900,880,860,840,820,810,800,790,779]
-  },
-  {
-    name: "Conference Board US Consumer Confidence",
-    region: "US", category: "Consumer",
-    roc: 5.7, seq_prior: 87.1, seq_latest: 89.3,
-    hist_high: "12/31/2020", hist_low: "11/30/2020",
-    fast_since: "12/31/2020", slow_since: "11/30/2020",
-    trend_12: 98.2, trend_6: 89.4, q_dec: 87.5, q_mar: 89.3,
-    spark: [85,86,87,87.5,88,88.5,89,89.2,89.3]
-  }
+// ─── FRED SERIES CONFIGURATION ──────────────────────────────────────────────
+const SERIES_CONFIG = [
+  // ── US (12) ──────────────────────────────────
+  { id: 'PERMIT',                name: 'Building Permits YoY %',           region: 'US',    category: 'Housing',         units: 'pc1', inverse: false },
+  { id: 'HOUST',                 name: 'Housing Starts YoY %',             region: 'US',    category: 'Housing',         units: 'pc1', inverse: false },
+  { id: 'GACDFSA066MSFRBPHI',   name: 'Philly Fed Manufacturing DI',      region: 'US',    category: 'Business Survey', units: null,  inverse: false },
+  { id: 'ICSA',                  name: 'Initial Jobless Claims (000s)',    region: 'US',    category: 'Labour',          units: null,  inverse: true  },
+  { id: 'UMCSENT',               name: 'Michigan Consumer Sentiment',      region: 'US',    category: 'Consumer',        units: null,  inverse: false },
+  { id: 'UNRATE',                name: 'Unemployment Rate',                region: 'US',    category: 'Labour',          units: null,  inverse: true  },
+  { id: 'CPIAUCSL',              name: 'CPI All Items YoY %',             region: 'US',    category: 'Inflation',       units: 'pc1', inverse: false },
+  { id: 'CPILFESL',              name: 'Core CPI (Ex Food & Energy) YoY %', region: 'US',  category: 'Inflation',       units: 'pc1', inverse: false },
+  { id: 'PAYEMS',                name: 'Nonfarm Payrolls YoY %',          region: 'US',    category: 'Labour',          units: 'pc1', inverse: false },
+  { id: 'RSAFS',                 name: 'Retail Sales YoY %',              region: 'US',    category: 'Consumer',        units: 'pc1', inverse: false },
+  { id: 'INDPRO',                name: 'Industrial Production YoY %',     region: 'US',    category: 'Output',          units: 'pc1', inverse: false },
+  { id: 'DGORDER',               name: 'Durable Goods Orders YoY %',      region: 'US',    category: 'Manufacturing',   units: 'pc1', inverse: false },
+
+  // ── UK (4) ───────────────────────────────────
+  { id: 'CSCICP02GBM460S',       name: 'UK Consumer Confidence (OECD)',   region: 'UK',    category: 'Consumer',        units: null,  inverse: false },
+  { id: 'LRHUTTTTGBM156S',       name: 'UK Unemployment Rate',            region: 'UK',    category: 'Labour',          units: null,  inverse: true  },
+  { id: 'CPALTT01GBM659N',       name: 'UK CPI YoY',                     region: 'UK',    category: 'Inflation',       units: null,  inverse: false },
+  { id: 'GBRLOLITONOSTSAM',      name: 'UK Composite Leading Indicator',  region: 'UK',    category: 'Leading',         units: null,  inverse: false },
+
+  // ── EU (5) ───────────────────────────────────
+  { id: 'CSCICP02EZM460S',       name: 'Eurozone Consumer Confidence',    region: 'EU',    category: 'Consumer',        units: null,  inverse: false },
+  { id: 'LRHUTTTTEZM156S',       name: 'Eurozone Unemployment Rate',      region: 'EU',    category: 'Labour',          units: null,  inverse: true  },
+  { id: 'DEULOLITONOSTSAM',      name: 'Germany CLI',                     region: 'EU',    category: 'Leading',         units: null,  inverse: false },
+  { id: 'FRALOLITONOSTSAM',      name: 'France CLI',                      region: 'EU',    category: 'Leading',         units: null,  inverse: false },
+  { id: 'EA19CPALTT01GYM',       name: 'Eurozone CPI YoY',               region: 'EU',    category: 'Inflation',       units: null,  inverse: false },
+
+  // ── JAPAN (5) ────────────────────────────────
+  { id: 'JPNLOLITONOSTSAM',      name: 'Japan CLI',                      region: 'JAPAN', category: 'Leading',         units: null,  inverse: false },
+  { id: 'CPALTT01JPM659N',       name: 'Japan CPI YoY',                  region: 'JAPAN', category: 'Inflation',       units: null,  inverse: false },
+  { id: 'CSCICP02JPM460S',       name: 'Japan Consumer Confidence',      region: 'JAPAN', category: 'Consumer',        units: null,  inverse: false },
+  { id: 'LRHUTTTTJPM156S',       name: 'Japan Unemployment Rate',        region: 'JAPAN', category: 'Labour',          units: null,  inverse: true  },
+  { id: 'JPNPROINDMISMEI',       name: 'Japan Industrial Production',    region: 'JAPAN', category: 'Output',          units: 'pc1', inverse: false },
+
+  // ── APAC (2) ─────────────────────────────────
+  { id: 'AUSLOLITONOSTSAM',      name: 'Australia CLI',                  region: 'APAC',  category: 'Leading',         units: null,  inverse: false },
+  { id: 'LRHUTTTTAUM156S',       name: 'Australia Unemployment Rate',    region: 'APAC',  category: 'Labour',          units: null,  inverse: true  },
+
+  // ── LATAM (2) ────────────────────────────────
+  { id: 'LRHUTTTTMXM156S',       name: 'Mexico Unemployment Rate',      region: 'LATAM', category: 'Labour',          units: null,  inverse: true  },
+  { id: 'BRALOLITONOSTSAM',      name: 'Brazil CLI',                    region: 'LATAM', category: 'Leading',         units: null,  inverse: false },
 ];
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
+let indicators = [];
 let filters = { region: 'ALL', signal: 'ALL', search: '' };
 let sortKey = 'score';
 let sortDir = 1;
 
+// ─── FRED DATA FETCHING ─────────────────────────────────────────────────────
+async function fetchFredSeries(seriesId, units, limit) {
+  let url = `/api/fred?series=${seriesId}&limit=${limit || 24}`;
+  if (units) url += `&units=${units}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`FRED proxy error ${resp.status} for ${seriesId}`);
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
+  return (data.observations || [])
+    .filter(obs => obs.value !== '.')
+    .map(obs => ({ date: obs.date, value: parseFloat(obs.value) }));
+}
+
+async function fetchAllSeries(configs, concurrency) {
+  const results = new Map();
+  const queue = [...configs];
+  let active = 0, completed = 0;
+  return new Promise(resolve => {
+    function next() {
+      while (active < (concurrency || 10) && queue.length > 0) {
+        const cfg = queue.shift();
+        active++;
+        fetchFredSeries(cfg.id, cfg.units, 24)
+          .then(obs => results.set(cfg.id, { observations: obs, error: null }))
+          .catch(err => {
+            console.warn(`Failed: ${cfg.id}:`, err.message);
+            results.set(cfg.id, { observations: [], error: err.message });
+          })
+          .finally(() => {
+            active--; completed++;
+            updateLoadingProgress(completed, configs.length);
+            if (completed === configs.length) resolve(results);
+            else next();
+          });
+      }
+    }
+    next();
+  });
+}
+
+// ─── DATA COMPUTATION ───────────────────────────────────────────────────────
+function computeIndicator(config, observations) {
+  const obs = [...observations].reverse(); // newest-first → chronological
+  if (obs.length < 2) {
+    return {
+      id: config.id, name: config.name, region: config.region,
+      category: config.category, inverse: config.inverse,
+      roc: null, seq_prior: null, seq_latest: null,
+      hist_high: null, hist_low: null,
+      trend_12: null, trend_6: null, spark: obs.map(o => o.value),
+    };
+  }
+  const values = obs.map(o => o.value);
+  const dates = obs.map(o => o.date);
+  const n = values.length;
+  const seq_latest = values[n - 1];
+  const seq_prior = values[n - 2];
+  const roc = seq_latest - seq_prior;
+  const trend_12 = n >= 12
+    ? values.slice(n - 12).reduce((s, v) => s + v, 0) / 12
+    : values.reduce((s, v) => s + v, 0) / n;
+  const trend_6 = n >= 6
+    ? values.slice(n - 6).reduce((s, v) => s + v, 0) / 6
+    : values.reduce((s, v) => s + v, 0) / n;
+  let hiIdx = 0, loIdx = 0;
+  for (let i = 1; i < n; i++) {
+    if (values[i] > values[hiIdx]) hiIdx = i;
+    if (values[i] < values[loIdx]) loIdx = i;
+  }
+  function fmtDate(iso) {
+    if (!iso) return null;
+    const [y, m, d] = iso.split('-');
+    return `${parseInt(m)}/${parseInt(d)}/${y}`;
+  }
+  return {
+    id: config.id, name: config.name, region: config.region,
+    category: config.category, inverse: config.inverse,
+    roc: parseFloat(roc.toFixed(4)),
+    seq_prior: parseFloat(seq_prior.toFixed(4)),
+    seq_latest: parseFloat(seq_latest.toFixed(4)),
+    hist_high: fmtDate(dates[hiIdx]),
+    hist_low: fmtDate(dates[loIdx]),
+    trend_12: parseFloat(trend_12.toFixed(4)),
+    trend_6: parseFloat(trend_6.toFixed(4)),
+    spark: values.slice(Math.max(0, n - 9)),
+  };
+}
+
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 function computeScore(d) {
-  // Score from -5 to +5 based on multiple signals
+  const inv = d.inverse ? -1 : 1;
   let score = 0; let count = 0;
   if (d.roc !== null && d.roc !== undefined) {
-    score += Math.sign(d.roc) * Math.min(Math.abs(d.roc) / 5, 1) * 2;
+    score += Math.sign(d.roc * inv) * Math.min(Math.abs(d.roc) / 5, 1) * 2;
     count++;
   }
   if (d.seq_latest !== null && d.seq_latest !== undefined && d.seq_prior !== null) {
-    score += Math.sign(d.seq_latest - d.seq_prior) * 1.5;
+    score += Math.sign((d.seq_latest - d.seq_prior) * inv) * 1.5;
     count++;
   }
   if (d.trend_12 !== null && d.trend_12 !== undefined) {
     if (d.seq_latest !== null) {
-      score += Math.sign(d.seq_latest - d.trend_12) * 1;
+      score += Math.sign((d.seq_latest - d.trend_12) * inv) * 1;
       count++;
     }
   }
@@ -1078,7 +1013,7 @@ function showTooltip(e, i) {
     <div class="tooltip-row"><span>Prior → Latest</span><span class="tooltip-val">${fmt(d.seq_prior)} → ${fmt(d.seq_latest)}</span></div>
     <div class="tooltip-row"><span>12MMA Trend</span><span class="tooltip-val">${fmt(d.trend_12)}</span></div>
     <div class="tooltip-row"><span>6MMA Trend</span><span class="tooltip-val">${fmt(d.trend_6)}</span></div>
-    <div class="tooltip-row"><span>Q Dec → Q Mar</span><span class="tooltip-val">${fmt(d.q_dec)} → ${fmt(d.q_mar)}</span></div>
+    <div class="tooltip-row"><span>FRED Series</span><span class="tooltip-val">${d.id || '—'}</span></div>
   `;
   tt.style.display = 'block';
   posTooltip(e);
@@ -1126,8 +1061,85 @@ function sortBy(key) {
   renderTable();
 }
 
+// ─── LOADING UI ─────────────────────────────────────────────────────────────
+function updateLoadingProgress(completed, total) {
+  const pct = Math.round((completed / total) * 100);
+  const bar = document.getElementById('loading-bar');
+  const status = document.getElementById('loading-status');
+  if (bar) bar.style.width = pct + '%';
+  if (status) status.textContent = `Fetching series ${completed} / ${total}...`;
+}
+
+function hideLoading() {
+  const overlay = document.getElementById('loading-overlay');
+  if (overlay) overlay.classList.add('hidden');
+  setTimeout(() => { if (overlay) overlay.style.display = 'none'; }, 500);
+}
+
+function showError(msg) {
+  const banner = document.getElementById('error-banner');
+  if (banner) { banner.textContent = msg; banner.style.display = 'block'; }
+}
+
+function clearError() {
+  const banner = document.getElementById('error-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+// ─── MAIN DATA PIPELINE ────────────────────────────────────────────────────
+async function fetchAndCompute() {
+  clearError();
+  const resultsMap = await fetchAllSeries(SERIES_CONFIG, 10);
+  const computed = [];
+  const errors = [];
+
+  for (const cfg of SERIES_CONFIG) {
+    const result = resultsMap.get(cfg.id);
+    if (!result || result.error) {
+      errors.push(`${cfg.id}: ${result ? result.error : 'no response'}`);
+      computed.push({
+        id: cfg.id, name: cfg.name, region: cfg.region,
+        category: cfg.category, inverse: cfg.inverse,
+        roc: null, seq_prior: null, seq_latest: null,
+        hist_high: null, hist_low: null,
+        trend_12: null, trend_6: null, spark: [],
+      });
+      continue;
+    }
+    computed.push(computeIndicator(cfg, result.observations));
+  }
+
+  indicators = computed;
+  const updatedEl = document.getElementById('last-updated');
+  if (updatedEl) updatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  if (errors.length > 0) {
+    showError(`${errors.length} series failed to load. Dashboard showing partial data.`);
+    console.warn('FRED fetch errors:', errors);
+  }
+  renderTable();
+}
+
+async function refreshData() {
+  const btn = document.querySelector('.refresh-btn');
+  if (btn) { btn.textContent = 'LOADING...'; btn.disabled = true; }
+  await fetchAndCompute();
+  if (btn) { btn.textContent = 'REFRESH'; btn.disabled = false; }
+}
+
+// Auto-refresh every 60 minutes
+setInterval(() => refreshData(), 60 * 60 * 1000);
+
 // ─── INIT ────────────────────────────────────────────────────────────────────
-renderTable();
+(async () => {
+  try {
+    await fetchAndCompute();
+  } catch (e) {
+    showError('Failed to load data: ' + e.message);
+    console.error('Init error:', e);
+  } finally {
+    hideLoading();
+  }
+})();
 </script>
 </body>
 </html>
