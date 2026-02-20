@@ -49,9 +49,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
   }
 
   .header-left { display: flex; align-items: center; gap: 16px; }
@@ -252,10 +249,11 @@
   }
 
   thead tr {
-    background: var(--bg3);
+    background: var(--bg2);
     position: sticky;
-    top: 57px;
-    z-index: 50;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   }
 
   .th-group {
