@@ -558,10 +558,10 @@
   .q1-cell.active { border-color: var(--accent); }
   .q2-cell { background: #e6f5ea; color: var(--grn-4); border: 1px solid transparent; }
   .q2-cell.active { border-color: var(--grn-4); }
-  .q3-cell { background: #fce8e8; color: var(--red-4); border: 1px solid transparent; }
-  .q3-cell.active { border-color: var(--red-4); }
-  .q4-cell { background: #fef5e0; color: #b8860b; border: 1px solid transparent; }
-  .q4-cell.active { border-color: #b8860b; }
+  .q3-cell { background: #fef5e0; color: #b8860b; border: 1px solid transparent; }
+  .q3-cell.active { border-color: #b8860b; }
+  .q4-cell { background: #fce8e8; color: var(--red-4); border: 1px solid transparent; }
+  .q4-cell.active { border-color: var(--red-4); }
 
   .quad-axis-labels {
     display: flex;
@@ -770,7 +770,7 @@ async function fetchAllSeries(configs, concurrency) {
       while (active < (concurrency || 10) && queue.length > 0) {
         const cfg = queue.shift();
         active++;
-        fetchFredSeries(cfg.id, cfg.units, 24)
+        fetchFredSeries(cfg.id, cfg.units, 36)
           .then(obs => results.set(cfg.id, { observations: obs, error: null }))
           .catch(err => {
             console.warn(`Failed: ${cfg.id}:`, err.message);
@@ -791,70 +791,129 @@ async function fetchAllSeries(configs, concurrency) {
 // ─── DATA COMPUTATION ───────────────────────────────────────────────────────
 function computeIndicator(config, observations) {
   const obs = [...observations].reverse(); // newest-first → chronological
-  if (obs.length < 2) {
-    return {
-      id: config.id, name: config.name, region: config.region,
-      category: config.category, inverse: config.inverse, macro: config.macro,
-      roc: null, seq_prior: null, seq_latest: null,
-      hist_high: null, hist_low: null,
-      trend_12: null, trend_6: null, spark: obs.map(o => o.value),
-    };
-  }
-  const values = obs.map(o => o.value);
+  const rawValues = obs.map(o => o.value);
   const dates = obs.map(o => o.date);
-  const n = values.length;
-  const seq_latest = values[n - 1];
-  const seq_prior = values[n - 2];
-  const roc = seq_latest - seq_prior;
-  const trend_12 = n >= 12
-    ? values.slice(n - 12).reduce((s, v) => s + v, 0) / 12
-    : values.reduce((s, v) => s + v, 0) / n;
-  const trend_6 = n >= 6
-    ? values.slice(n - 6).reduce((s, v) => s + v, 0) / 6
-    : values.reduce((s, v) => s + v, 0) / n;
+  const n = rawValues.length;
+
+  const emptyResult = {
+    id: config.id, name: config.name, region: config.region,
+    category: config.category, inverse: config.inverse, macro: config.macro,
+    roc: null, roc_3m: null, roc_std: null,
+    seq_prior: null, seq_latest: null,
+    hist_high: null, hist_low: null,
+    trend_12: null, trend_6: null, spark: rawValues.slice(-9),
+  };
+  if (n < 2) return emptyResult;
+
+  // ── Build YoY rate-of-change series ────────────────────────────
+  // For pc1 series: FRED already returns YoY %. Use directly.
+  // For raw-level series: compute YoY as simple difference.
+  //   This handles diffusion indices and rates that cross zero
+  //   gracefully (percentage change breaks near zero).
+  let yoy, yoyDates;
+  if (config.units === 'pc1') {
+    yoy = rawValues;
+    yoyDates = dates;
+  } else {
+    yoy = [];
+    yoyDates = [];
+    for (let i = 12; i < n; i++) {
+      const base = rawValues[i - 12];
+      if (base !== null && base !== undefined) {
+        yoy.push(rawValues[i] - base);
+        yoyDates.push(dates[i]);
+      }
+    }
+  }
+
+  const yn = yoy.length;
+  if (yn < 2) return emptyResult;
+
+  const seq_latest = yoy[yn - 1];
+  const seq_prior  = yoy[yn - 2];
+  const roc = seq_latest - seq_prior;          // 2nd derivative: monthly acceleration
+
+  // 3-month acceleration trend (smoothed 2nd derivative)
+  const roc_3m = yn >= 4
+    ? (yoy[yn - 1] - yoy[yn - 4]) / 3
+    : roc;
+
+  // Std dev of sequential YoY changes (for z-score normalization)
+  // This lets us compare acceleration across indicators with
+  // very different scales (CPI ~0.1pp vs Housing Permits ~5pp).
+  const seqChanges = [];
+  for (let i = 1; i < yn; i++) seqChanges.push(yoy[i] - yoy[i - 1]);
+  const meanChg = seqChanges.reduce((s, v) => s + v, 0) / seqChanges.length;
+  const roc_std = Math.sqrt(
+    seqChanges.reduce((s, v) => s + (v - meanChg) ** 2, 0) / seqChanges.length
+  ) || 1; // fallback to 1 to avoid division by zero
+
+  // Moving averages of the YoY series
+  const t12 = yoy.slice(Math.max(0, yn - 12));
+  const trend_12 = t12.reduce((s, v) => s + v, 0) / t12.length;
+  const t6 = yoy.slice(Math.max(0, yn - 6));
+  const trend_6 = t6.reduce((s, v) => s + v, 0) / t6.length;
+
+  // Historical high / low within the YoY window
   let hiIdx = 0, loIdx = 0;
-  for (let i = 1; i < n; i++) {
-    if (values[i] > values[hiIdx]) hiIdx = i;
-    if (values[i] < values[loIdx]) loIdx = i;
+  for (let i = 1; i < yn; i++) {
+    if (yoy[i] > yoy[hiIdx]) hiIdx = i;
+    if (yoy[i] < yoy[loIdx]) loIdx = i;
   }
   function fmtDate(iso) {
     if (!iso) return null;
     const [y, m, d] = iso.split('-');
     return `${parseInt(m)}/${parseInt(d)}/${y}`;
   }
+
   return {
     id: config.id, name: config.name, region: config.region,
     category: config.category, inverse: config.inverse, macro: config.macro,
-    roc: parseFloat(roc.toFixed(4)),
-    seq_prior: parseFloat(seq_prior.toFixed(4)),
+    roc:        parseFloat(roc.toFixed(4)),
+    roc_3m:     parseFloat(roc_3m.toFixed(4)),
+    roc_std:    parseFloat(roc_std.toFixed(4)),
+    seq_prior:  parseFloat(seq_prior.toFixed(4)),
     seq_latest: parseFloat(seq_latest.toFixed(4)),
-    hist_high: fmtDate(dates[hiIdx]),
-    hist_low: fmtDate(dates[loIdx]),
-    trend_12: parseFloat(trend_12.toFixed(4)),
-    trend_6: parseFloat(trend_6.toFixed(4)),
-    spark: values.slice(Math.max(0, n - 9)),
+    hist_high:  fmtDate(yoyDates[hiIdx]),
+    hist_low:   fmtDate(yoyDates[loIdx]),
+    trend_12:   parseFloat(trend_12.toFixed(4)),
+    trend_6:    parseFloat(trend_6.toFixed(4)),
+    spark:      yoy.slice(Math.max(0, yn - 12)),
   };
 }
 
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 function computeScore(d) {
+  // ── Z-score normalized acceleration scoring ──────────────────
+  // Each indicator's rate-of-change is normalized against its own
+  // historical volatility (std dev), so a 0.1pp shift in CPI
+  // carries the same weight as a 5pp shift in Housing Permits.
   const inv = d.inverse ? -1 : 1;
-  let score = 0; let count = 0;
+  const std = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
+  let score = 0; let components = 0;
+
+  // Primary: 3-month acceleration trend (z-scored, heaviest weight)
+  if (d.roc_3m !== null && d.roc_3m !== undefined) {
+    const z = (d.roc_3m * inv) / std;
+    score += Math.max(-2.5, Math.min(2.5, z * 1.5));
+    components++;
+  }
+
+  // Secondary: Latest monthly acceleration (z-scored)
   if (d.roc !== null && d.roc !== undefined) {
-    score += Math.sign(d.roc * inv) * Math.min(Math.abs(d.roc) / 5, 1) * 2;
-    count++;
+    const z = (d.roc * inv) / std;
+    score += Math.max(-1.5, Math.min(1.5, z * 1.0));
+    components++;
   }
-  if (d.seq_latest !== null && d.seq_latest !== undefined && d.seq_prior !== null) {
-    score += Math.sign((d.seq_latest - d.seq_prior) * inv) * 1.5;
-    count++;
+
+  // Tertiary: Latest YoY vs 12-month avg (trend position)
+  if (d.seq_latest !== null && d.trend_12 !== null) {
+    const z = ((d.seq_latest - d.trend_12) * inv) / std;
+    score += Math.max(-1.0, Math.min(1.0, z * 0.5));
+    components++;
   }
-  if (d.trend_12 !== null && d.trend_12 !== undefined) {
-    if (d.seq_latest !== null) {
-      score += Math.sign((d.seq_latest - d.trend_12) * inv) * 1;
-      count++;
-    }
-  }
-  return count > 0 ? Math.max(-5, Math.min(5, score)) : 0;
+
+  return components > 0 ? Math.max(-5, Math.min(5, score)) : 0;
 }
 
 // ─── COLOR HELPERS ───────────────────────────────────────────────────────────
@@ -888,6 +947,17 @@ function deltaClass(latest, prior) {
   if (d > -0.3) return 'c-n';
   if (d > -1) return 'c-r2';
   if (d > -3) return 'c-r3';
+  return 'c-r5';
+}
+
+// Z-score-based color class — normalizes across indicators
+function zClass(z) {
+  if (z >= 1.5)  return 'c-g5';
+  if (z >= 0.75) return 'c-g3';
+  if (z >= 0.25) return 'c-g2';
+  if (z > -0.25) return 'c-n';
+  if (z > -0.75) return 'c-r2';
+  if (z > -1.5)  return 'c-r3';
   return 'c-r5';
 }
 
@@ -963,25 +1033,38 @@ function renderStats(data) {
   const bull = data.filter(d => d.score > 0).length;
   const bear = data.filter(d => d.score < 0).length;
 
-  // ── Hedgeye 4-Quadrant Model ──────────────────────────────────────
-  // Separate indicators into Growth and Inflation axes
-  // Score > 0 = accelerating, Score < 0 = decelerating (rate of change)
+  // ── Hedgeye 4-Quadrant Model (Breadth-Based) ─────────────────
+  // For each indicator, determine if the YoY rate-of-change is
+  // ACCELERATING (2nd derivative > 0) or DECELERATING (< 0).
+  // Quad is set by breadth: what % of indicators are accelerating
+  // on the Growth axis vs the Inflation axis.
   const growthData = data.filter(d => d.macro === 'growth');
   const inflData   = data.filter(d => d.macro === 'inflation');
 
-  const growthScore = growthData.length > 0
-    ? growthData.reduce((s, d) => s + d.score, 0) / growthData.length : 0;
-  const inflScore = inflData.length > 0
-    ? inflData.reduce((s, d) => s + d.score, 0) / inflData.length : 0;
+  function isAccelerating(d) {
+    const inv = d.inverse ? -1 : 1;
+    const std = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
+    // Prefer 3-month smoothed trend; fall back to latest monthly RoC
+    const signal = d.roc_3m !== null ? d.roc_3m : (d.roc !== null ? d.roc : 0);
+    return (signal * inv) / std > 0.1;  // small threshold to filter noise
+  }
 
-  // Determine quadrant based on Growth & Inflation RoC direction
-  // Q1: Growth ↑ Inflation ↓  |  Q2: Growth ↑ Inflation ↑
-  // Q3: Growth ↓ Inflation ↓  |  Q4: Growth ↓ Inflation ↑
+  const growthAccel = growthData.filter(d => isAccelerating(d)).length;
+  const inflAccel   = inflData.filter(d => isAccelerating(d)).length;
+  const growthBreadth = growthData.length > 0 ? growthAccel / growthData.length : 0.5;
+  const inflBreadth   = inflData.length > 0 ? inflAccel / inflData.length : 0.5;
+
+  // Determine quad: >55% accelerating = "Up", <45% = "Down"
+  const gUp = growthBreadth > 0.55;
+  const gDn = growthBreadth < 0.45;
+  const iUp = inflBreadth > 0.55;
+  const iDn = inflBreadth < 0.45;
+
+  // Q1: Growth↑ Infl↓  (Goldilocks)
+  // Q2: Growth↑ Infl↑  (Reflation)
+  // Q3: Growth↓ Infl↑  (Stagflation)   ← CORRECT Hedgeye numbering
+  // Q4: Growth↓ Infl↓  (Deflation)     ← CORRECT Hedgeye numbering
   let quad, quadName, quadColor, quadBg, quadBorder, quadDesc, quadAssets;
-  const gUp = growthScore > 0.25;
-  const gDn = growthScore < -0.25;
-  const iUp = inflScore > 0.25;
-  const iDn = inflScore < -0.25;
 
   if (gUp && !iUp) {
     quad = 1;
@@ -995,18 +1078,18 @@ function renderStats(data) {
     quadColor = 'var(--grn-4)'; quadBg = '#e6f5ea'; quadBorder = 'var(--grn-4)';
     quadDesc = 'Growth accelerating · Inflation accelerating';
     quadAssets = 'Equities (Cyclicals), Commodities, TIPS';
-  } else if (gDn && !iUp) {
+  } else if (gDn && iUp) {
     quad = 3;
     quadName = 'QUAD 3';
-    quadColor = 'var(--red-4)'; quadBg = '#fce8e8'; quadBorder = 'var(--red-4)';
-    quadDesc = 'Growth decelerating · Inflation decelerating';
-    quadAssets = 'Treasuries, Gold, Utilities, Defensives';
-  } else if (gDn && iUp) {
-    quad = 4;
-    quadName = 'QUAD 4';
     quadColor = '#b8860b'; quadBg = '#fef5e0'; quadBorder = '#b8860b';
     quadDesc = 'Growth decelerating · Inflation accelerating';
     quadAssets = 'Cash, Gold, Commodities, Short Equities';
+  } else if (gDn && !iUp) {
+    quad = 4;
+    quadName = 'QUAD 4';
+    quadColor = 'var(--red-4)'; quadBg = '#fce8e8'; quadBorder = 'var(--red-4)';
+    quadDesc = 'Growth decelerating · Inflation decelerating';
+    quadAssets = 'Treasuries, Gold, Utilities, Defensives';
   } else {
     quad = 0;
     quadName = 'TRANSITIONAL';
@@ -1014,6 +1097,9 @@ function renderStats(data) {
     quadDesc = 'Mixed signals · Regime transition in progress';
     quadAssets = 'Selective positioning · Reduce concentration risk';
   }
+
+  const gPct = Math.round(growthBreadth * 100);
+  const iPct = Math.round(inflBreadth * 100);
 
   document.getElementById('stats-bar').innerHTML = `
     <div class="stat-card">
@@ -1032,14 +1118,14 @@ function renderStats(data) {
       <div class="stat-sub">${Math.round(bear/data.length*100)||0}% of total</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">GROWTH RoC</div>
-      <div class="stat-value ${growthScore >= 0 ? 'green' : 'red'}">${growthScore >= 0 ? '+' : ''}${growthScore.toFixed(2)}</div>
-      <div class="stat-sub">${growthScore > 0.25 ? 'Accelerating' : growthScore < -0.25 ? 'Decelerating' : 'Flat'} · ${growthData.length} series</div>
+      <div class="stat-label">GROWTH BREADTH</div>
+      <div class="stat-value ${growthBreadth >= 0.5 ? 'green' : 'red'}">${growthAccel}/${growthData.length}</div>
+      <div class="stat-sub">${gPct}% accelerating · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">INFLATION RoC</div>
-      <div class="stat-value ${inflScore >= 0 ? 'green' : 'red'}">${inflScore >= 0 ? '+' : ''}${inflScore.toFixed(2)}</div>
-      <div class="stat-sub">${inflScore > 0.25 ? 'Accelerating' : inflScore < -0.25 ? 'Decelerating' : 'Flat'} · ${inflData.length} series</div>
+      <div class="stat-label">INFLATION BREADTH</div>
+      <div class="stat-value ${inflBreadth <= 0.5 ? 'green' : 'red'}">${inflAccel}/${inflData.length}</div>
+      <div class="stat-sub">${iPct}% accelerating · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card" style="flex:2.5;background:var(--bg2);">
       <div class="stat-label">HEDGEYE MACRO REGIME</div>
@@ -1053,8 +1139,8 @@ function renderStats(data) {
           <div class="quad-grid">
             <div class="quad-cell q1-cell ${quad===1?'active':''}">Q1</div>
             <div class="quad-cell q2-cell ${quad===2?'active':''}">Q2</div>
-            <div class="quad-cell q3-cell ${quad===3?'active':''}">Q3</div>
             <div class="quad-cell q4-cell ${quad===4?'active':''}">Q4</div>
+            <div class="quad-cell q3-cell ${quad===3?'active':''}">Q3</div>
           </div>
         </div>
         <div class="quad-detail">
@@ -1088,9 +1174,16 @@ function renderTable() {
     const scoreVal = d.score;
     const scorePct = ((scoreVal + 5) / 10 * 100).toFixed(0);
     const scoreColor = scoreVal >= 0 ? 'var(--grn-4)' : 'var(--red-4)';
-    const rocCls = rocClass(d.roc);
-    const seqCls = deltaClass(d.seq_latest, d.seq_prior);
-    const trendCls = rocClass(d.trend_12);
+    const inv = d.inverse ? -1 : 1;
+    const std = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
+    const rocZ = d.roc !== null ? (d.roc * inv) / std : 0;
+    const rocCls = zClass(rocZ);
+    const seqZ = d.seq_latest !== null && d.seq_prior !== null
+      ? ((d.seq_latest - d.seq_prior) * inv) / std : 0;
+    const seqCls = zClass(seqZ);
+    const trendZ = d.seq_latest !== null && d.trend_12 !== null
+      ? ((d.seq_latest - d.trend_12) * inv) / std : 0;
+    const trendCls = zClass(trendZ);
 
     html += `
     <tr class="data-row" style="animation-delay:${delay}ms" 
@@ -1141,15 +1234,20 @@ function showTooltip(e, i) {
   if (!d) return;
   const tt = document.getElementById('tooltip');
   const scoreColor = d.score >= 0 ? 'var(--grn-4)' : 'var(--red-4)';
+  const accelDir = d.roc !== null
+    ? ((d.inverse ? -d.roc : d.roc) > 0 ? 'ACCELERATING' : 'DECELERATING') : '—';
+  const accelColor = d.roc !== null
+    ? ((d.inverse ? -d.roc : d.roc) > 0 ? 'var(--grn-4)' : 'var(--red-4)') : 'var(--text-dim)';
   tt.innerHTML = `
     <div class="tooltip-title">${d.name}</div>
     <div class="tooltip-row"><span>Region</span><span class="tooltip-val">${d.region}</span></div>
-    <div class="tooltip-row"><span>Category</span><span class="tooltip-val">${d.category}</span></div>
-    <div class="tooltip-row"><span>Composite Score</span><span class="tooltip-val" style="color:${scoreColor}">${d.score.toFixed(2)}</span></div>
-    <div class="tooltip-row"><span>Rate of Change</span><span class="tooltip-val">${fmt(d.roc)}</span></div>
-    <div class="tooltip-row"><span>Prior → Latest</span><span class="tooltip-val">${fmt(d.seq_prior)} → ${fmt(d.seq_latest)}</span></div>
-    <div class="tooltip-row"><span>12MMA Trend</span><span class="tooltip-val">${fmt(d.trend_12)}</span></div>
-    <div class="tooltip-row"><span>6MMA Trend</span><span class="tooltip-val">${fmt(d.trend_6)}</span></div>
+    <div class="tooltip-row"><span>Macro Axis</span><span class="tooltip-val">${d.macro === 'inflation' ? 'Inflation' : 'Growth'}</span></div>
+    <div class="tooltip-row"><span>YoY Trend</span><span class="tooltip-val" style="color:${accelColor}">${accelDir}</span></div>
+    <div class="tooltip-row"><span>Score (z-norm)</span><span class="tooltip-val" style="color:${scoreColor}">${d.score.toFixed(2)}</span></div>
+    <div class="tooltip-row"><span>Monthly Accel (2nd Deriv)</span><span class="tooltip-val">${fmt(d.roc)}</span></div>
+    <div class="tooltip-row"><span>3M Avg Accel</span><span class="tooltip-val">${fmt(d.roc_3m)}</span></div>
+    <div class="tooltip-row"><span>Prior YoY → Latest YoY</span><span class="tooltip-val">${fmt(d.seq_prior)} → ${fmt(d.seq_latest)}</span></div>
+    <div class="tooltip-row"><span>12M Avg YoY</span><span class="tooltip-val">${fmt(d.trend_12)}</span></div>
     <div class="tooltip-row"><span>FRED Series</span><span class="tooltip-val">${d.id || '—'}</span></div>
   `;
   tt.style.display = 'block';
