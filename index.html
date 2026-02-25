@@ -531,7 +531,7 @@
   }
   .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-  /* Hedgeye Quad Grid */
+  /* Phase Grid */
   .quad-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -833,7 +833,7 @@
 // ─── FRED SERIES CONFIGURATION ──────────────────────────────────────────────
 const SERIES_CONFIG = [
   // ── US (12) ──────────────────────────────────
-  // macro: 'growth' | 'inflation'  (Hedgeye Quad axis)
+  // macro: 'growth' | 'inflation'  (Phase model axis)
   // weight: 2.0 = US core  |  1.5 = Leading  |  1.0 = Standard
   { id: 'PERMIT',                name: 'Building Permits YoY %',           region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
   { id: 'HOUST',                 name: 'Housing Starts YoY %',             region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
@@ -1170,10 +1170,10 @@ function renderStats(data) {
   const bull = data.filter(d => d.score > 0).length;
   const bear = data.filter(d => d.score < 0).length;
 
-  // ── Hedgeye 4-Quadrant Model (Breadth-Based) ─────────────────
+  // ── 4-Phase Macro Regime Model (Breadth-Based) ───────────────
   // For each indicator, determine if the YoY rate-of-change is
   // ACCELERATING (2nd derivative > 0) or DECELERATING (< 0).
-  // Quad is set by breadth: what % of indicators are accelerating
+  // Phase is set by breadth: what % of indicators are accelerating
   // on the Growth axis vs the Inflation axis.
   const growthData = data.filter(d => d.macro === 'growth');
   const inflData   = data.filter(d => d.macro === 'inflation');
@@ -1203,33 +1203,33 @@ function renderStats(data) {
   const iUp = inflBreadth > 0.55;
   const iDn = inflBreadth < 0.45;
 
-  // Q1: Growth↑ Infl↓  (Goldilocks)
-  // Q2: Growth↑ Infl↑  (Reflation)
-  // Q3: Growth↓ Infl↑  (Stagflation)   ← CORRECT Hedgeye numbering
-  // Q4: Growth↓ Infl↓  (Deflation)     ← CORRECT Hedgeye numbering
+  // P1: Growth↑ Infl↓  (Goldilocks)
+  // P2: Growth↑ Infl↑  (Reflation)
+  // P3: Growth↓ Infl↑  (Stagflation)
+  // P4: Growth↓ Infl↓  (Deflation)
   let quad, quadName, quadColor, quadBg, quadBorder, quadDesc, quadAssets;
 
   if (gUp && !iUp) {
     quad = 1;
-    quadName = 'QUAD 1';
+    quadName = 'PHASE 1';
     quadColor = 'var(--accent)'; quadBg = '#e8eff5'; quadBorder = 'var(--accent)';
     quadDesc = 'Growth accelerating · Inflation decelerating';
     quadAssets = 'Equities (Growth/Tech), Bonds, USD';
   } else if (gUp && iUp) {
     quad = 2;
-    quadName = 'QUAD 2';
+    quadName = 'PHASE 2';
     quadColor = 'var(--grn-4)'; quadBg = '#e6f5ea'; quadBorder = 'var(--grn-4)';
     quadDesc = 'Growth accelerating · Inflation accelerating';
     quadAssets = 'Equities (Cyclicals), Commodities, TIPS';
   } else if (gDn && iUp) {
     quad = 3;
-    quadName = 'QUAD 3';
+    quadName = 'PHASE 3';
     quadColor = '#b8860b'; quadBg = '#fef5e0'; quadBorder = '#b8860b';
     quadDesc = 'Growth decelerating · Inflation accelerating';
     quadAssets = 'Cash, Gold, Commodities, Short Equities';
   } else if (gDn && !iUp) {
     quad = 4;
-    quadName = 'QUAD 4';
+    quadName = 'PHASE 4';
     quadColor = 'var(--red-4)'; quadBg = '#fce8e8'; quadBorder = 'var(--red-4)';
     quadDesc = 'Growth decelerating · Inflation decelerating';
     quadAssets = 'Treasuries, Gold, Utilities, Defensives';
@@ -1271,7 +1271,7 @@ function renderStats(data) {
       <div class="stat-sub">${inflAccelCount}/${inflData.length} accel (wtd) · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card" style="flex:2.5;background:var(--bg2);">
-      <div class="stat-label">HEDGEYE MACRO REGIME</div>
+      <div class="stat-label">MACRO REGIME</div>
       <div style="display:flex;align-items:center;margin-top:4px;">
         <div class="quad-axis-labels">
           <div class="quad-axis-label">GROWTH ↑</div>
@@ -1280,10 +1280,10 @@ function renderStats(data) {
         <div>
           <div style="text-align:center;font-family:var(--font-mono);font-size:8px;color:var(--text-dim);letter-spacing:1px;margin-bottom:2px;">INFL ↓ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; INFL ↑</div>
           <div class="quad-grid">
-            <div class="quad-cell q1-cell ${quad===1?'active':''}">Q1</div>
-            <div class="quad-cell q2-cell ${quad===2?'active':''}">Q2</div>
-            <div class="quad-cell q4-cell ${quad===4?'active':''}">Q4</div>
-            <div class="quad-cell q3-cell ${quad===3?'active':''}">Q3</div>
+            <div class="quad-cell q1-cell ${quad===1?'active':''}">P1</div>
+            <div class="quad-cell q2-cell ${quad===2?'active':''}">P2</div>
+            <div class="quad-cell q4-cell ${quad===4?'active':''}">P4</div>
+            <div class="quad-cell q3-cell ${quad===3?'active':''}">P3</div>
           </div>
         </div>
         <div class="quad-detail">

@@ -475,7 +475,7 @@
     <div class="logo">MDS</div>
     <div>
       <div class="header-title">MACRO DATA SEQUENCER</div>
-      <div class="header-subtitle">HEDGEYE RISK MANAGEMENT · GLOBAL INDICATOR TRACKER</div>
+      <div class="header-subtitle">GLOBAL INDICATOR TRACKER</div>
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:24px;">
@@ -985,7 +985,7 @@ function renderStats(data) {
       <div class="stat-label">MACRO REGIME SIGNAL</div>
       <div style="display:flex;align-items:center;gap:12px;margin-top:4px;">
         <div class="regime-indicator ${avgScore < -0.5 ? 'regime-q3' : ''}" style="${avgScore >= 0.5 ? 'background:rgba(46,204,113,0.15);color:var(--grn-4);border:1px solid var(--grn-4);' : avgScore < -0.5 ? '' : 'background:rgba(88,166,255,0.1);color:var(--accent);border:1px solid var(--accent);'}">
-          ${avgScore >= 0.5 ? 'QUAD 2 — RISK-ON' : avgScore < -0.5 ? 'QUAD 3 — RISK-OFF' : 'TRANSITIONAL'}
+          ${avgScore >= 0.5 ? 'PHASE 2 — RISK-ON' : avgScore < -0.5 ? 'PHASE 3 — RISK-OFF' : 'TRANSITIONAL'}
         </div>
         <div class="regime-desc">${avgScore >= 0.5 ? 'Growth accelerating · Inflation rising · Equities, Commodities favored' : avgScore < -0.5 ? 'Growth slowing · Deceleration dominating · Bonds, Gold, Defensives favored' : 'Mixed signals · Regime transition in progress · Selective positioning advised'}</div>
       </div>
