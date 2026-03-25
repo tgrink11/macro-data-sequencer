@@ -712,9 +712,58 @@
     vertical-align: middle;
   }
 
-  /* How It Works Panel */
-  .hiw-body { display: none; }
-  .hiw-body.open { display: block; padding: 20px 24px 24px; background: var(--bg2); border-bottom: 1px solid var(--border); }
+  /* How It Works Button */
+  .hiw-btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 16px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #fff;
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1.5px;
+    transition: all 0.15s;
+  }
+  .hiw-btn:hover { background: #0d3f5e; border-color: #0d3f5e; }
+
+  /* How It Works Overlay */
+  .hiw-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 300;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .hiw-overlay.open { display: flex; }
+  .hiw-panel {
+    background: var(--bg2);
+    border-radius: 8px;
+    padding: 28px 32px 24px;
+    max-width: 900px;
+    width: 100%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+  }
+  .hiw-close-btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 24px;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #fff;
+    cursor: pointer;
+    border-radius: 4px;
+    letter-spacing: 1.5px;
+  }
+  .hiw-close-btn:hover { background: #0d3f5e; }
   .hiw-body h3 {
     font-family: var(--font-mono);
     font-size: 12px;
@@ -798,6 +847,7 @@
       <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">DATA SOURCE</div>
       <div style="font-family:var(--font-mono);font-size:14px;color:var(--text-bright);">FRED API · LIVE</div>
     </div>
+    <button class="hiw-btn" onclick="toggleHowItWorks()">? HOW IT WORKS</button>
     <div>
       <div class="last-updated" id="last-updated">—</div>
       <button class="refresh-btn" onclick="refreshData()" title="Refresh data from FRED">REFRESH</button>
@@ -858,12 +908,8 @@
 </div>
 
 <!-- How It Works -->
-<div class="fmp-section">
-  <div class="cal-toggle" onclick="toggleHowItWorks()">
-    <span>HOW IT WORKS</span>
-    <span id="hiw-toggle-icon">▼</span>
-  </div>
-  <div class="hiw-body" id="hiw-body">
+<div class="hiw-overlay" id="hiw-overlay" onclick="if(event.target===this)toggleHowItWorks()">
+  <div class="hiw-panel" id="hiw-body">
 
     <h3>The 4 Phases</h3>
     <p>The MDS classifies the macro environment into one of four regimes based on two axes: <strong>Growth</strong> and <strong>Inflation</strong>. Each axis is either accelerating or decelerating.</p>
@@ -930,6 +976,10 @@
     <h3>Data Sources</h3>
     <p><strong>FRED</strong> (Federal Reserve Economic Data) — 30 economic indicator series across US, UK, EU, Japan, APAC, LATAM. Auto-refreshes every 60 minutes.</p>
     <p><strong>FMP</strong> (Financial Modeling Prep) — US Treasury yields and upcoming economic calendar events.</p>
+
+    <div style="text-align:center;margin-top:20px;">
+      <button class="hiw-close-btn" onclick="toggleHowItWorks()">CLOSE</button>
+    </div>
 
   </div>
 </div>
@@ -1751,11 +1801,10 @@ function toggleCalendar() {
 }
 
 function toggleHowItWorks() {
-  const body = document.getElementById('hiw-body');
-  const icon = document.getElementById('hiw-toggle-icon');
-  if (!body) return;
-  const isOpen = body.classList.toggle('open');
-  if (icon) icon.textContent = isOpen ? '▲' : '▼';
+  const overlay = document.getElementById('hiw-overlay');
+  if (!overlay) return;
+  overlay.classList.toggle('open');
+  document.body.style.overflow = overlay.classList.contains('open') ? 'hidden' : '';
 }
 
 // Fetch FMP data in parallel (non-blocking — doesn't delay FRED data)
