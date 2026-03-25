@@ -711,6 +711,67 @@
     margin-left: 6px;
     vertical-align: middle;
   }
+
+  /* How It Works Panel */
+  .hiw-body { display: none; }
+  .hiw-body.open { display: block; padding: 20px 24px 24px; background: var(--bg2); border-bottom: 1px solid var(--border); }
+  .hiw-body h3 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 20px 0 8px;
+  }
+  .hiw-body h3:first-child { margin-top: 0; }
+  .hiw-body p, .hiw-body li {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .hiw-body ul { margin: 4px 0 4px 20px; }
+  .hiw-body li { margin-bottom: 3px; }
+  .hiw-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    margin: 8px 0 12px;
+  }
+  .hiw-table th {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .hiw-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .hiw-table tr:hover td { background: rgba(17,79,120,0.04); }
+  .hiw-phase-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+  }
+  .hiw-p1 { background: #e8eff5; color: var(--accent); }
+  .hiw-p2 { background: #e6f5ea; color: var(--grn-4); }
+  .hiw-p3 { background: #fef5e0; color: #b8860b; }
+  .hiw-p4 { background: #fce8e8; color: var(--red-4); }
+  .hiw-score-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .hiw-score-swatch {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
@@ -793,6 +854,83 @@
   </div>
   <div class="cal-body" id="cal-body">
     <!-- populated by JS -->
+  </div>
+</div>
+
+<!-- How It Works -->
+<div class="fmp-section">
+  <div class="cal-toggle" onclick="toggleHowItWorks()">
+    <span>HOW IT WORKS</span>
+    <span id="hiw-toggle-icon">▼</span>
+  </div>
+  <div class="hiw-body" id="hiw-body">
+
+    <h3>The 4 Phases</h3>
+    <p>The MDS classifies the macro environment into one of four regimes based on two axes: <strong>Growth</strong> and <strong>Inflation</strong>. Each axis is either accelerating or decelerating.</p>
+    <table class="hiw-table">
+      <tr><th>Phase</th><th>Growth</th><th>Inflation</th><th>Nickname</th><th>Best Sectors &amp; Assets</th></tr>
+      <tr>
+        <td><span class="hiw-phase-badge hiw-p1">P1</span></td>
+        <td>Accelerating</td><td>Decelerating</td><td>Goldilocks</td>
+        <td>Technology, Consumer Discretionary, Comms, Financials · Growth equities, Bonds, USD</td>
+      </tr>
+      <tr>
+        <td><span class="hiw-phase-badge hiw-p2">P2</span></td>
+        <td>Accelerating</td><td>Accelerating</td><td>Reflation</td>
+        <td>Energy, Materials, Industrials, Financials · Cyclicals, Commodities, TIPS, REITs</td>
+      </tr>
+      <tr>
+        <td><span class="hiw-phase-badge hiw-p3">P3</span></td>
+        <td>Decelerating</td><td>Accelerating</td><td>Stagflation</td>
+        <td>Energy, Healthcare, Consumer Staples, Utilities · Cash, Gold, Commodities</td>
+      </tr>
+      <tr>
+        <td><span class="hiw-phase-badge hiw-p4">P4</span></td>
+        <td>Decelerating</td><td>Decelerating</td><td>Deflation</td>
+        <td>Utilities, Healthcare, Consumer Staples · Long Treasuries, Gold, Dividend stocks</td>
+      </tr>
+    </table>
+    <p>A <strong>Transitional</strong> state is shown when signals are mixed. In that case: reduce concentration, diversify, and wait for clearer signals.</p>
+
+    <h3>How Phases Are Determined</h3>
+    <p>Each indicator is tagged as a Growth or Inflation measure. The system computes <strong>breadth</strong> — the weighted percentage of indicators on each axis that are accelerating.</p>
+    <ul>
+      <li><strong>Breadth &gt; 55%</strong> = Accelerating</li>
+      <li><strong>Breadth &lt; 45%</strong> = Decelerating</li>
+      <li><strong>45–55%</strong> = Transitional</li>
+    </ul>
+    <p>US core indicators carry <strong>2.0x weight</strong> (Unemployment, CPI, Payrolls, Retail Sales, Industrial Production). Leading indicators carry <strong>1.5x</strong> (Housing, Surveys, Jobless Claims). International indicators carry <strong>1.0x</strong>.</p>
+
+    <h3>Indicator Scoring (-5 to +5)</h3>
+    <p>Each indicator receives a composite score from three components, all normalized by the indicator's own volatility:</p>
+    <ul>
+      <li><strong>3-Month Acceleration Trend (1.5x)</strong> — Smoothed momentum of the year-over-year trend</li>
+      <li><strong>Latest Monthly Acceleration (1.0x)</strong> — Most recent month's change</li>
+      <li><strong>Trend Position (0.5x)</strong> — Latest YoY vs. 12-month moving average</li>
+    </ul>
+
+    <h3>Score Color Guide</h3>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--grn-5)"></div><span style="font-family:var(--font-mono);font-size:12px;">+3.0 or higher — Strongly Bullish</span></div>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--grn-3)"></div><span style="font-family:var(--font-mono);font-size:12px;">+1.5 to +3.0 — Moderately Bullish</span></div>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--grn-1)"></div><span style="font-family:var(--font-mono);font-size:12px;">+0.5 to +1.5 — Slightly Bullish</span></div>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--neutral)"></div><span style="font-family:var(--font-mono);font-size:12px;">-0.5 to +0.5 — Neutral</span></div>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--red-1)"></div><span style="font-family:var(--font-mono);font-size:12px;">-0.5 to -1.5 — Slightly Bearish</span></div>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--red-3)"></div><span style="font-family:var(--font-mono);font-size:12px;">-1.5 to -3.0 — Moderately Bearish</span></div>
+    <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--red-5)"></div><span style="font-family:var(--font-mono);font-size:12px;">-3.0 or lower — Strongly Bearish</span></div>
+
+    <h3>Reading the Dashboard</h3>
+    <ul>
+      <li><strong>Check the Phase</strong> — The stats bar shows which of the 4 phases the economy is in</li>
+      <li><strong>Review Breadth</strong> — Growth and Inflation breadth percentages show the balance of accelerating vs. decelerating indicators</li>
+      <li><strong>Scan the Scores</strong> — Green rows are bullish, red rows are bearish. Sort by score to find strongest/weakest signals</li>
+      <li><strong>Check the Calendar</strong> — Upcoming data releases that could shift the picture</li>
+      <li><strong>Position Accordingly</strong> — Use the phase-based sector and asset guidance in the table above</li>
+    </ul>
+
+    <h3>Data Sources</h3>
+    <p><strong>FRED</strong> (Federal Reserve Economic Data) — 30 economic indicator series across US, UK, EU, Japan, APAC, LATAM. Auto-refreshes every 60 minutes.</p>
+    <p><strong>FMP</strong> (Financial Modeling Prep) — US Treasury yields and upcoming economic calendar events.</p>
+
   </div>
 </div>
 
@@ -1607,6 +1745,14 @@ function renderCalendar(events) {
 function toggleCalendar() {
   const body = document.getElementById('cal-body');
   const icon = document.getElementById('cal-toggle-icon');
+  if (!body) return;
+  const isOpen = body.classList.toggle('open');
+  if (icon) icon.textContent = isOpen ? '▲' : '▼';
+}
+
+function toggleHowItWorks() {
+  const body = document.getElementById('hiw-body');
+  const icon = document.getElementById('hiw-toggle-icon');
   if (!body) return;
   const isOpen = body.classList.toggle('open');
   if (icon) icon.textContent = isOpen ? '▲' : '▼';
