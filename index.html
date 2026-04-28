@@ -852,6 +852,11 @@
       <div class="last-updated" id="last-updated">—</div>
       <button class="refresh-btn" onclick="refreshData()" title="Refresh data from FRED">REFRESH</button>
     </div>
+    <div id="freshness-stripe" style="display:none;border-left:1px solid var(--border);padding-left:24px;">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">OLDEST DATA</div>
+      <div id="freshness-value" style="font-family:var(--font-mono);font-size:14px;color:var(--text-bright);">—</div>
+      <div id="freshness-sub" class="last-updated" style="margin-top:2px;">—</div>
+    </div>
     <div class="live-badge">
       <div class="live-dot"></div>
       LIVE
@@ -1026,7 +1031,9 @@ const SERIES_CONFIG = [
   { id: 'PERMIT',                name: 'Building Permits YoY %',           region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
   { id: 'HOUST',                 name: 'Housing Starts YoY %',             region: 'US',    category: 'Housing',         units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
   { id: 'GACDFSA066MSFRBPHI',   name: 'Philly Fed Manufacturing DI',      region: 'US',    category: 'Business Survey', units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
-  { id: 'ICSA',                  name: 'Initial Jobless Claims (000s)',    region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.5 },
+  // ICSA is weekly natively; aggregate to monthly using END-OF-PERIOD (last weekly print of the month)
+  // rather than 'avg' so the latest reading reflects current conditions instead of a stale 4-week mean.
+  { id: 'ICSA',                  name: 'Initial Jobless Claims (000s)',    region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.5, frequency: 'm', aggregation_method: 'eop' },
   { id: 'UMCSENT',               name: 'Michigan Consumer Sentiment',      region: 'US',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
   { id: 'UNRATE',                name: 'Unemployment Rate',                region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 2.0 },
   { id: 'CPIAUCSL',              name: 'CPI All Items YoY %',             region: 'US',    category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
@@ -1072,9 +1079,11 @@ let sortKey = 'score';
 let sortDir = 1;
 
 // ─── FRED DATA FETCHING ─────────────────────────────────────────────────────
-async function fetchFredSeries(seriesId, units, limit) {
+async function fetchFredSeries(seriesId, units, limit, frequency, aggregation) {
   let url = `/api/fred?series=${seriesId}&limit=${limit || 24}`;
   if (units) url += `&units=${units}`;
+  if (frequency) url += `&frequency=${frequency}`;
+  if (aggregation) url += `&aggregation_method=${aggregation}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`FRED proxy error ${resp.status} for ${seriesId}`);
   const data = await resp.json();
@@ -1093,7 +1102,7 @@ async function fetchAllSeries(configs, concurrency) {
       while (active < (concurrency || 10) && queue.length > 0) {
         const cfg = queue.shift();
         active++;
-        fetchFredSeries(cfg.id, cfg.units, 36)
+        fetchFredSeries(cfg.id, cfg.units, 36, cfg.frequency, cfg.aggregation_method)
           .then(obs => results.set(cfg.id, { observations: obs, error: null }))
           .catch(err => {
             console.warn(`Failed: ${cfg.id}:`, err.message);
@@ -1122,10 +1131,11 @@ function computeIndicator(config, observations) {
     id: config.id, name: config.name, region: config.region,
     category: config.category, inverse: config.inverse, macro: config.macro,
     weight: config.weight || 1,
-    roc: null, roc_3m: null, roc_std: null,
+    roc: null, roc_3m: null, roc_std: null, yoy_std: null,
     seq_prior: null, seq_latest: null,
     hist_high: null, hist_low: null,
     trend_12: null, trend_6: null, spark: rawValues.slice(-9),
+    latest_date: dates[n - 1] || null,
   };
   if (n < 2) return emptyResult;
 
@@ -1162,15 +1172,21 @@ function computeIndicator(config, observations) {
     ? (yoy[yn - 1] - yoy[yn - 4]) / 3
     : roc;
 
-  // Std dev of sequential YoY changes (for z-score normalization)
-  // This lets us compare acceleration across indicators with
-  // very different scales (CPI ~0.1pp vs Housing Permits ~5pp).
+  // Std dev of sequential YoY changes — normalizes ACCELERATION scores
+  // so a 0.1pp CPI swing and a 5pp Housing Permits swing are comparable.
   const seqChanges = [];
   for (let i = 1; i < yn; i++) seqChanges.push(yoy[i] - yoy[i - 1]);
   const meanChg = seqChanges.reduce((s, v) => s + v, 0) / seqChanges.length;
   const roc_std = Math.sqrt(
     seqChanges.reduce((s, v) => s + (v - meanChg) ** 2, 0) / seqChanges.length
   ) || 1; // fallback to 1 to avoid division by zero
+
+  // Std dev of YoY LEVELS — used to normalize level-vs-trend deviations
+  // (e.g. seq_latest - trend_12). Different scale than roc_std.
+  const meanYoy = yoy.reduce((s, v) => s + v, 0) / yn;
+  const yoy_std = Math.sqrt(
+    yoy.reduce((s, v) => s + (v - meanYoy) ** 2, 0) / yn
+  ) || 1;
 
   // Moving averages of the YoY series
   const t12 = yoy.slice(Math.max(0, yn - 12));
@@ -1197,6 +1213,7 @@ function computeIndicator(config, observations) {
     roc:        parseFloat(roc.toFixed(4)),
     roc_3m:     parseFloat(roc_3m.toFixed(4)),
     roc_std:    parseFloat(roc_std.toFixed(4)),
+    yoy_std:    parseFloat(yoy_std.toFixed(4)),
     seq_prior:  parseFloat(seq_prior.toFixed(4)),
     seq_latest: parseFloat(seq_latest.toFixed(4)),
     hist_high:  fmtDate(yoyDates[hiIdx]),
@@ -1204,22 +1221,58 @@ function computeIndicator(config, observations) {
     trend_12:   parseFloat(trend_12.toFixed(4)),
     trend_6:    parseFloat(trend_6.toFixed(4)),
     spark:      yoy.slice(Math.max(0, yn - 12)),
+    latest_date: yoyDates[yn - 1] || dates[n - 1] || null,
   };
+}
+
+// Returns days since an ISO YYYY-MM-DD date (UTC-anchored to avoid timezone drift).
+function daysSince(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso + 'T00:00:00Z');
+  if (Number.isNaN(then)) return null;
+  return Math.floor((Date.now() - then) / 86400000);
+}
+
+// Color class for an age in days. >45d red, >30d amber, else neutral.
+function ageClass(days) {
+  if (days === null || days === undefined) return 'c-n';
+  if (days > 45) return 'c-r3';
+  if (days > 30) return 'c-r2';
+  return 'c-n';
+}
+
+// ─── MARKET-INTERPRETATION SIGN ──────────────────────────────────────────────
+// The raw `score` always measures DIRECTION of the indicator's YoY:
+// positive = accelerating, negative = decelerating. For inflation series,
+// accelerating = bearish for markets, so we flip the SIGN for display and
+// for the BULLISH / BEARISH tally. The Phase breadth math still uses the
+// raw acceleration direction — this multiplier is purely for UI/market read.
+function marketSign(d) {
+  return d && d.macro === 'inflation' ? -1 : 1;
 }
 
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 function computeScore(d) {
   // ── Z-score normalized acceleration scoring ──────────────────
-  // Each indicator's rate-of-change is normalized against its own
-  // historical volatility (std dev), so a 0.1pp shift in CPI
-  // carries the same weight as a 5pp shift in Housing Permits.
-  const inv = d.inverse ? -1 : 1;
-  const std = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
+  // Each indicator's signals are normalized against its own historical
+  // volatility, so a 0.1pp shift in CPI carries the same weight as a
+  // 5pp shift in Housing Permits. Two std devs are used:
+  //   roc_std → std of month-to-month CHANGES in the YoY series
+  //             (used for the two acceleration components)
+  //   yoy_std → std of YoY LEVELS
+  //             (used for level-vs-trend deviation — different scale)
+  const inv    = d.inverse ? -1 : 1;
+  const std    = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
+  const yoyStd = d.yoy_std && d.yoy_std > 0 ? d.yoy_std : 1;
   let score = 0; let components = 0;
 
-  // Primary: 3-month acceleration trend (z-scored, heaviest weight)
+  // Primary: 3-month acceleration trend (heaviest weight).
+  // roc_3m is an AVERAGE of 3 monthly changes, so its natural std ≈
+  // roc_std / √3. Multiply z by √3 to make it comparable to the
+  // single-month z below — otherwise this component is systematically
+  // under-weighted relative to the secondary.
   if (d.roc_3m !== null && d.roc_3m !== undefined) {
-    const z = (d.roc_3m * inv) / std;
+    const z = (d.roc_3m * inv * Math.sqrt(3)) / std;
     score += Math.max(-2.5, Math.min(2.5, z * 1.5));
     components++;
   }
@@ -1231,14 +1284,17 @@ function computeScore(d) {
     components++;
   }
 
-  // Tertiary: Latest YoY vs 12-month avg (trend position)
+  // Tertiary: Latest YoY vs 12-month avg (trend position).
+  // Numerator is a LEVEL deviation — divide by yoy_std, not roc_std,
+  // or this component saturates and degenerates to ±0.5 sign-only.
   if (d.seq_latest !== null && d.trend_12 !== null) {
-    const z = ((d.seq_latest - d.trend_12) * inv) / std;
+    const z = ((d.seq_latest - d.trend_12) * inv) / yoyStd;
     score += Math.max(-1.0, Math.min(1.0, z * 0.5));
     components++;
   }
 
-  return components > 0 ? Math.max(-5, Math.min(5, score)) : 0;
+  // Per-component caps sum to ±5, so no outer clip needed.
+  return components > 0 ? score : 0;
 }
 
 // ─── COLOR HELPERS ───────────────────────────────────────────────────────────
@@ -1336,7 +1392,7 @@ function getFilteredData() {
   return indicators.filter(d => {
     if (filters.region !== 'ALL' && d.region !== filters.region) return false;
     if (filters.signal !== 'ALL') {
-      const s = computeScore(d);
+      const s = computeScore(d) * marketSign(d);
       if (filters.signal === 'BEARISH' && s >= 0) return false;
       if (filters.signal === 'BULLISH' && s < 0) return false;
     }
@@ -1355,8 +1411,9 @@ function getFilteredData() {
 }
 
 function renderStats(data) {
-  const bull = data.filter(d => d.score > 0).length;
-  const bear = data.filter(d => d.score < 0).length;
+  // Market interpretation: for inflation indicators, accelerating = bearish.
+  const bull = data.filter(d => d.score * marketSign(d) > 0).length;
+  const bear = data.filter(d => d.score * marketSign(d) < 0).length;
 
   // ── 4-Phase Macro Regime Model (Breadth-Based) ───────────────
   // For each indicator, determine if the YoY rate-of-change is
@@ -1369,19 +1426,29 @@ function renderStats(data) {
   function isAccelerating(d) {
     const inv = d.inverse ? -1 : 1;
     const std = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
-    // Prefer 3-month smoothed trend; fall back to latest monthly RoC
-    const signal = d.roc_3m !== null ? d.roc_3m : (d.roc !== null ? d.roc : 0);
-    return (signal * inv) / std > 0.1;  // small threshold to filter noise
+    // Prefer 3-month smoothed trend (scale-corrected by √3 so it's
+    // comparable to a 1-month z); fall back to the latest monthly RoC.
+    let z;
+    if (d.roc_3m !== null && d.roc_3m !== undefined) {
+      z = (d.roc_3m * inv * Math.sqrt(3)) / std;
+    } else if (d.roc !== null && d.roc !== undefined) {
+      z = (d.roc * inv) / std;
+    } else {
+      z = 0;
+    }
+    return z > 0.1;  // small threshold to filter noise
   }
 
   // Weighted breadth: US core (2x) and leading (1.5x) indicators
   // carry more influence than standard international indicators (1x).
-  const growthAccelCount = growthData.filter(d => isAccelerating(d)).length;
-  const inflAccelCount   = inflData.filter(d => isAccelerating(d)).length;
+  const growthAccel = growthData.filter(d => isAccelerating(d));
+  const inflAccel   = inflData.filter(d => isAccelerating(d));
+  const growthAccelCount  = growthAccel.length;
+  const inflAccelCount    = inflAccel.length;
   const growthWeightTotal = growthData.reduce((s, d) => s + (d.weight || 1), 0);
-  const growthAccelWeight = growthData.filter(d => isAccelerating(d)).reduce((s, d) => s + (d.weight || 1), 0);
+  const growthAccelWeight = growthAccel.reduce((s, d) => s + (d.weight || 1), 0);
   const inflWeightTotal   = inflData.reduce((s, d) => s + (d.weight || 1), 0);
-  const inflAccelWeight   = inflData.filter(d => isAccelerating(d)).reduce((s, d) => s + (d.weight || 1), 0);
+  const inflAccelWeight   = inflAccel.reduce((s, d) => s + (d.weight || 1), 0);
   const growthBreadth = growthWeightTotal > 0 ? growthAccelWeight / growthWeightTotal : 0.5;
   const inflBreadth   = inflWeightTotal > 0 ? inflAccelWeight / inflWeightTotal : 0.5;
 
@@ -1451,12 +1518,12 @@ function renderStats(data) {
     <div class="stat-card">
       <div class="stat-label">GROWTH BREADTH</div>
       <div class="stat-value ${growthBreadth >= 0.5 ? 'green' : 'red'}">${gPct}%</div>
-      <div class="stat-sub">${growthAccelCount}/${growthData.length} accel (wtd) · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
+      <div class="stat-sub">${growthAccelWeight.toFixed(1)}/${growthWeightTotal.toFixed(1)} wtd · ${growthAccelCount}/${growthData.length} ct · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">INFLATION BREADTH</div>
       <div class="stat-value ${inflBreadth <= 0.5 ? 'green' : 'red'}">${iPct}%</div>
-      <div class="stat-sub">${inflAccelCount}/${inflData.length} accel (wtd) · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
+      <div class="stat-sub">${inflAccelWeight.toFixed(1)}/${inflWeightTotal.toFixed(1)} wtd · ${inflAccelCount}/${inflData.length} ct · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card" style="flex:2.5;background:var(--bg2);">
       <div class="stat-label">MACRO REGIME</div>
@@ -1502,18 +1569,24 @@ function renderTable() {
   let html = '';
   let delay = 0;
   data.forEach((d, i) => {
-    const scoreVal = d.score;
-    const scorePct = ((scoreVal + 5) / 10 * 100).toFixed(0);
-    const scoreColor = scoreVal >= 0 ? 'var(--grn-4)' : 'var(--red-4)';
-    const inv = d.inverse ? -1 : 1;
-    const std = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
-    const rocZ = d.roc !== null ? (d.roc * inv) / std : 0;
+    const scoreVal = d.score;                  // raw acceleration (direction)
+    const mSign    = marketSign(d);             // +1 growth, -1 inflation
+    const marketScore = scoreVal * mSign;       // market-interpreted score
+    const scorePct = ((marketScore + 5) / 10 * 100).toFixed(0);
+    const scoreColor = marketScore >= 0 ? 'var(--grn-4)' : 'var(--red-4)';
+    const inv    = d.inverse ? -1 : 1;
+    const std    = d.roc_std && d.roc_std > 0 ? d.roc_std : 1;
+    const yoyStd = d.yoy_std && d.yoy_std > 0 ? d.yoy_std : 1;
+    // Cell colors also follow the market interpretation (mSign), so an
+    // accelerating CPI reads red across the whole row.
+    const rocZ = d.roc !== null ? (d.roc * inv * mSign) / std : 0;
     const rocCls = zClass(rocZ);
     const seqZ = d.seq_latest !== null && d.seq_prior !== null
-      ? ((d.seq_latest - d.seq_prior) * inv) / std : 0;
+      ? ((d.seq_latest - d.seq_prior) * inv * mSign) / std : 0;
     const seqCls = zClass(seqZ);
+    // Trend deviation is a LEVEL gap → normalize by yoy_std.
     const trendZ = d.seq_latest !== null && d.trend_12 !== null
-      ? ((d.seq_latest - d.trend_12) * inv) / std : 0;
+      ? ((d.seq_latest - d.trend_12) * inv * mSign) / yoyStd : 0;
     const trendCls = zClass(trendZ);
 
     html += `
@@ -1523,7 +1596,7 @@ function renderTable() {
       <td>
         <div class="indicator-cell" title="${d.name}">
           ${d.name}
-          <div class="indicator-region">${d.region} · ${d.category}</div>
+          <div class="indicator-region">${d.region} · ${d.category}${d.latest_date ? ` · <span class="${ageClass(daysSince(d.latest_date))}" style="padding:0;background:transparent;">as of ${d.latest_date}${daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)}d)` : ''}</span>` : ''}</div>
         </div>
       </td>
       <td class="score-cell">
@@ -1564,11 +1637,15 @@ function showTooltip(e, i) {
   const d = window._tableData && window._tableData[i];
   if (!d) return;
   const tt = document.getElementById('tooltip');
-  const scoreColor = d.score >= 0 ? 'var(--grn-4)' : 'var(--red-4)';
+  const mSign = marketSign(d);
+  const scoreColor = (d.score * mSign) >= 0 ? 'var(--grn-4)' : 'var(--red-4)';
+  // accelDir reports the objective direction of the series; color reflects
+  // market interpretation (accelerating inflation = red).
   const accelDir = d.roc !== null
     ? ((d.inverse ? -d.roc : d.roc) > 0 ? 'ACCELERATING' : 'DECELERATING') : '—';
   const accelColor = d.roc !== null
-    ? ((d.inverse ? -d.roc : d.roc) > 0 ? 'var(--grn-4)' : 'var(--red-4)') : 'var(--text-dim)';
+    ? (((d.inverse ? -d.roc : d.roc) * mSign) > 0 ? 'var(--grn-4)' : 'var(--red-4)')
+    : 'var(--text-dim)';
   tt.innerHTML = `
     <div class="tooltip-title">${d.name}</div>
     <div class="tooltip-row"><span>Region</span><span class="tooltip-val">${d.region}</span></div>
@@ -1580,6 +1657,7 @@ function showTooltip(e, i) {
     <div class="tooltip-row"><span>Prior YoY → Latest YoY</span><span class="tooltip-val">${fmt(d.seq_prior)} → ${fmt(d.seq_latest)}</span></div>
     <div class="tooltip-row"><span>12M Avg YoY</span><span class="tooltip-val">${fmt(d.trend_12)}</span></div>
     <div class="tooltip-row"><span>FRED Series</span><span class="tooltip-val">${d.id || '—'}</span></div>
+    <div class="tooltip-row"><span>Latest Observation</span><span class="tooltip-val">${d.latest_date || '—'}${d.latest_date && daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)} days ago)` : ''}</span></div>
   `;
   tt.style.display = 'block';
   posTooltip(e);
@@ -1652,68 +1730,82 @@ function clearError() {
   if (banner) banner.style.display = 'none';
 }
 
-// ─── FMP SUPPLEMENTAL DATA ──────────────────────────────────────────────────
-async function fetchTreasury() {
+// ─── FRED YIELD CURVE ───────────────────────────────────────────────────────
+// 3M / 2Y / 10Y / 30Y constant-maturity treasuries from FRED. Daily series with
+// T-1 publication. Replaced FMP treasury endpoint for source consistency with
+// the rest of the macro stack — and no more separate provider key needed.
+async function fetchYieldCurve() {
   try {
-    const today = new Date();
-    const from = new Date(today);
-    from.setDate(from.getDate() - 7);
-    const fmtD = d => d.toISOString().slice(0, 10);
-    const resp = await fetch(`/api/fmp?type=treasury&from=${fmtD(from)}&to=${fmtD(today)}`);
-    if (!resp.ok) throw new Error(`FMP treasury ${resp.status}`);
-    const data = await resp.json();
-    if (!data || data.length === 0) return;
-    renderTreasury(data);
+    const ids = ['DGS3MO', 'DGS2', 'DGS10', 'DGS30'];
+    const series = await Promise.all(
+      ids.map(id => fetchFredSeries(id, null, 10))
+    );
+    // fetchFredSeries returns chronologically-mapped values; FRED itself
+    // sorts desc, so the *first* observation per series is the most recent.
+    // But fetchFredSeries doesn't reverse — it just maps. Verify ordering
+    // by checking the dates; FRED returns desc unless overridden.
+    const ordered = series.map(obs => obs.slice().sort((a, b) => b.date.localeCompare(a.date)));
+    const [m3Obs, y2Obs, y10Obs, y30Obs] = ordered;
+    if (!m3Obs.length || !y2Obs.length || !y10Obs.length) return;
+
+    renderYieldCurve({
+      m3:  { latest: m3Obs[0],  prior: m3Obs[1]  || null },
+      y2:  { latest: y2Obs[0],  prior: y2Obs[1]  || null },
+      y10: { latest: y10Obs[0], prior: y10Obs[1] || null },
+      y30: { latest: y30Obs[0] || null, prior: y30Obs[1] || null }
+    });
   } catch (e) {
-    console.warn('FMP treasury fetch failed:', e.message);
+    console.warn('FRED yield curve fetch failed:', e.message);
   }
 }
 
-function renderTreasury(data) {
+function renderYieldCurve(d) {
   const section = document.getElementById('treasury-section');
   const bar = document.getElementById('treasury-bar');
-  if (!section || !bar || !data || data.length === 0) return;
+  if (!section || !bar) return;
 
-  const latest = data[0]; // most recent
-  const prior = data.length > 1 ? data[1] : null;
-  const m3 = latest.month3;
-  const y2 = latest.year2;
-  const y10 = latest.year10;
-  const y30 = latest.year30;
-  const spread = y10 !== undefined && y2 !== undefined ? ((y10 - y2) * 100).toFixed(0) : null;
+  const m3v  = d.m3.latest?.value;
+  const y2v  = d.y2.latest?.value;
+  const y10v = d.y10.latest?.value;
+  const y30v = d.y30.latest?.value;
+  const spread = (y10v !== undefined && y2v !== undefined) ? ((y10v - y2v) * 100).toFixed(0) : null;
+  const headerDate = d.y10.latest?.date || d.y2.latest?.date || '—';
 
-  function chg(cur, prv, key) {
-    if (!prv || cur === undefined || prv[key] === undefined) return '';
-    const d = cur - prv[key];
-    const cls = d > 0 ? 'yield-up' : d < 0 ? 'yield-dn' : '';
-    return `<span class="${cls}">${d > 0 ? '▲' : d < 0 ? '▼' : '—'} ${Math.abs(d * 100).toFixed(0)}bp</span>`;
+  function chg(curObj, priorObj) {
+    if (!curObj || !priorObj || curObj.value === undefined || priorObj.value === undefined) return '';
+    const delta = curObj.value - priorObj.value;
+    const cls = delta > 0 ? 'yield-up' : delta < 0 ? 'yield-dn' : '';
+    const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '—';
+    return `<span class="${cls}">${arrow} ${Math.abs(delta * 100).toFixed(0)}bp</span>`;
   }
+
+  function fmtPct(v) { return v !== undefined && v !== null ? v.toFixed(2) + '%' : '—'; }
 
   section.style.display = 'block';
   bar.innerHTML = `
     <div class="fmp-bar-item">
-      <div class="fmp-bar-label">YIELD CURVE <span class="data-source-tag">FMP</span></div>
-      <div class="fmp-bar-sub">${latest.date || '—'}</div>
+      <div class="fmp-bar-label">YIELD CURVE <span class="data-source-tag">FRED</span></div>
+      <div class="fmp-bar-sub">${headerDate}</div>
     </div>
     <div class="fmp-bar-item">
       <div class="fmp-bar-label">3M</div>
-      <div class="fmp-bar-value">${m3 !== undefined ? m3.toFixed(2) + '%' : '—'}</div>
-      <div class="fmp-bar-sub">${chg(m3, prior, 'month3')}</div>
+      <div class="fmp-bar-value">${fmtPct(m3v)}</div>
+      <div class="fmp-bar-sub">${chg(d.m3.latest, d.m3.prior)}</div>
     </div>
     <div class="fmp-bar-item">
       <div class="fmp-bar-label">2Y</div>
-      <div class="fmp-bar-value">${y2 !== undefined ? y2.toFixed(2) + '%' : '—'}</div>
-      <div class="fmp-bar-sub">${chg(y2, prior, 'year2')}</div>
+      <div class="fmp-bar-value">${fmtPct(y2v)}</div>
+      <div class="fmp-bar-sub">${chg(d.y2.latest, d.y2.prior)}</div>
     </div>
     <div class="fmp-bar-item">
       <div class="fmp-bar-label">10Y</div>
-      <div class="fmp-bar-value">${y10 !== undefined ? y10.toFixed(2) + '%' : '—'}</div>
-      <div class="fmp-bar-sub">${chg(y10, prior, 'year10')}</div>
+      <div class="fmp-bar-value">${fmtPct(y10v)}</div>
+      <div class="fmp-bar-sub">${chg(d.y10.latest, d.y10.prior)}</div>
     </div>
     <div class="fmp-bar-item">
       <div class="fmp-bar-label">30Y</div>
-      <div class="fmp-bar-value">${y30 !== undefined ? y30.toFixed(2) + '%' : '—'}</div>
-      <div class="fmp-bar-sub">${chg(y30, prior, 'year30')}</div>
+      <div class="fmp-bar-value">${fmtPct(y30v)}</div>
+      <div class="fmp-bar-sub">${chg(d.y30.latest, d.y30.prior)}</div>
     </div>
     <div class="fmp-bar-item">
       <div class="fmp-bar-label">2s10s SPREAD</div>
@@ -1807,9 +1899,10 @@ function toggleHowItWorks() {
   document.body.style.overflow = overlay.classList.contains('open') ? 'hidden' : '';
 }
 
-// Fetch FMP data in parallel (non-blocking — doesn't delay FRED data)
+// Fetch supplemental data in parallel (non-blocking — doesn't delay main FRED series).
+// Yield curve is now FRED (DGS series); calendar is still FMP.
 async function fetchFmpData() {
-  await Promise.allSettled([fetchTreasury(), fetchCalendar()]);
+  await Promise.allSettled([fetchYieldCurve(), fetchCalendar()]);
 }
 
 // ─── MAIN DATA PIPELINE ────────────────────────────────────────────────────
@@ -1827,10 +1920,11 @@ async function fetchAndCompute() {
         id: cfg.id, name: cfg.name, region: cfg.region,
         category: cfg.category, inverse: cfg.inverse, macro: cfg.macro,
         weight: cfg.weight || 1,
-        roc: null, roc_3m: null, roc_std: null,
+        roc: null, roc_3m: null, roc_std: null, yoy_std: null,
         seq_prior: null, seq_latest: null,
         hist_high: null, hist_low: null,
         trend_12: null, trend_6: null, spark: [],
+        latest_date: null,
       });
       continue;
     }
@@ -1840,11 +1934,41 @@ async function fetchAndCompute() {
   indicators = computed;
   const updatedEl = document.getElementById('last-updated');
   if (updatedEl) updatedEl.textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  renderFreshness(computed);
   if (errors.length > 0) {
     showError(`${errors.length} series failed to load. Dashboard showing partial data.`);
     console.warn('FRED fetch errors:', errors);
   }
   renderTable();
+}
+
+// ─── FRESHNESS STRIPE ────────────────────────────────────────────────────────
+// Surfaces the oldest observation date across all loaded series so the user can
+// distinguish "fresh fetch of fresh data" from "fresh fetch of stale data".
+// Color escalates: neutral (≤30d) → amber (>30d) → red (>45d).
+function renderFreshness(data) {
+  const stripe = document.getElementById('freshness-stripe');
+  const valueEl = document.getElementById('freshness-value');
+  const subEl   = document.getElementById('freshness-sub');
+  if (!stripe || !valueEl || !subEl) return;
+
+  let oldest = null;
+  for (const d of data) {
+    const days = daysSince(d.latest_date);
+    if (days === null) continue;
+    if (!oldest || days > oldest.days) oldest = { days, name: d.name, date: d.latest_date };
+  }
+  if (!oldest) { stripe.style.display = 'none'; return; }
+
+  stripe.style.display = '';
+  valueEl.textContent = `${oldest.days} day${oldest.days === 1 ? '' : 's'}`;
+  subEl.textContent = `${oldest.name} · ${oldest.date}`;
+  // Color: red >45d, amber >30d, default otherwise.
+  valueEl.style.color = oldest.days > 45
+    ? 'var(--red-4)'
+    : oldest.days > 30
+      ? '#b8860b'
+      : 'var(--text-bright)';
 }
 
 async function refreshData() {

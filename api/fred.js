@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'FRED_KEY not configured' });
   }
 
-  const { series, limit = 24, units, observation_start } = req.query;
+  const { series, limit = 24, units, observation_start, frequency, aggregation_method } = req.query;
   if (!series) {
     return res.status(400).json({ error: 'series param required' });
   }
@@ -35,6 +35,14 @@ export default async function handler(req, res) {
 
     if (observation_start && /^\d{4}-\d{2}-\d{2}$/.test(observation_start)) {
       url += `&observation_start=${observation_start}`;
+    }
+
+    // Optional frequency aggregation (e.g. weekly → monthly for ICSA)
+    if (frequency && /^(d|w|bw|m|q|sa|a)$/.test(frequency)) {
+      url += `&frequency=${frequency}`;
+    }
+    if (aggregation_method && /^(avg|sum|eop)$/.test(aggregation_method)) {
+      url += `&aggregation_method=${aggregation_method}`;
     }
 
     const response = await fetch(url);

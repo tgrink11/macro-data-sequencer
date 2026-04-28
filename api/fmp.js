@@ -1,5 +1,7 @@
 // api/fmp.js — Vercel Serverless proxy for Financial Modeling Prep API
-// Supplements FRED with treasury yields and economic calendar.
+// Supplements FRED with the economic calendar (forward-looking releases).
+// Yield curve was migrated to FRED (DGS3MO/DGS2/DGS10/DGS30) for source
+// consistency, so the 'treasury' type is no longer accepted here.
 // FMP_KEY stays server-side (env var). CDN-cached 1 hour.
 
 export default async function handler(req, res) {
@@ -14,7 +16,7 @@ export default async function handler(req, res) {
 
   const { type, from, to, name } = req.query;
   if (!type) {
-    return res.status(400).json({ error: 'type param required (calendar, treasury, indicator)' });
+    return res.status(400).json({ error: 'type param required (calendar, indicator)' });
   }
 
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,17 +28,13 @@ export default async function handler(req, res) {
       url = `https://financialmodelingprep.com/api/v3/economic_calendar?apikey=${FMP_KEY}`;
       if (from && dateRe.test(from)) url += `&from=${from}`;
       if (to && dateRe.test(to)) url += `&to=${to}`;
-    } else if (type === 'treasury') {
-      url = `https://financialmodelingprep.com/api/v4/treasury?apikey=${FMP_KEY}`;
-      if (from && dateRe.test(from)) url += `&from=${from}`;
-      if (to && dateRe.test(to)) url += `&to=${to}`;
     } else if (type === 'indicator') {
       if (!name || !/^[A-Za-z_ ]{1,80}$/.test(name)) {
         return res.status(400).json({ error: 'Invalid indicator name' });
       }
       url = `https://financialmodelingprep.com/api/v3/economic?name=${encodeURIComponent(name)}&apikey=${FMP_KEY}`;
     } else {
-      return res.status(400).json({ error: 'Invalid type. Use: calendar, treasury, indicator' });
+      return res.status(400).json({ error: 'Invalid type. Use: calendar, indicator' });
     }
 
     const response = await fetch(url);
