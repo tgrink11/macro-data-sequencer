@@ -8,6 +8,9 @@
     },
     "api/fmp.js": {
       "maxDuration": 10
+    },
+    "api/phase.js": {
+      "maxDuration": 15
     }
   },
   "headers": [
