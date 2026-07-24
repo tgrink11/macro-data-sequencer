@@ -2,7 +2,7 @@
 
 ## What Is It?
 
-The Macro Data Sequencer (MDS) is a real-time global macro-economic dashboard that tracks 30+ economic indicators across 6 regions (US, UK, EU, Japan, APAC, LATAM). It automatically classifies the current macroeconomic environment into one of **4 Phases** and provides asset allocation guidance for each.
+The Macro Data Sequencer (MDS) is a real-time **US** macro-economic dashboard that tracks 12 core US economic indicators. It automatically classifies the current macroeconomic environment into one of **4 Phases** and provides asset allocation guidance for each.
 
 Data is sourced live from **FRED** (Federal Reserve Economic Data) and **Financial Modeling Prep** (treasury yields + economic calendar).
 
@@ -38,8 +38,7 @@ An indicator is considered "accelerating" when its smoothed 3-month trend, norma
 | Weight | Applies To |
 |--------|------------|
 | **2.0x** | Core US indicators (Unemployment, CPI, Core CPI, Payrolls, Retail Sales, Industrial Production) |
-| **1.5x** | Leading indicators (Housing Permits, Housing Starts, Philly Fed, Jobless Claims, Consumer Sentiment, Durable Goods, Composite Leading Indicators) |
-| **1.0x** | Standard international indicators |
+| **1.5x** | Leading indicators (Housing Permits, Housing Starts, Philly Fed, Jobless Claims, Consumer Sentiment, Durable Goods) |
 
 ### Step 3: Assign the Phase
 
@@ -74,6 +73,45 @@ All values are normalized by the indicator's own historical volatility, allowing
 | Light Red | -0.5 to -1.5 | Slightly Bearish |
 | Medium Red | -1.5 to -3.0 | Moderately Bearish |
 | Dark Red | -3.0 or lower | Strongly Bearish |
+
+---
+
+## Quarterly Regime — QoQ (SAAR) & YoY
+
+The monthly diffusion table is fast but noisy. The **Quarterly Regime** panel (directly under the stats bar) adds the NIPA/BLS "hard data" the monthly series can't express, on both horizons at once:
+
+| Series | Axis | What it tells you |
+|--------|------|-------------------|
+| **Real GDP** (`GDPC1`) | Growth | The headline output run-rate |
+| **Real PCE** (`PCECC96`) | Growth | Consumer spending, ~⅔ of GDP |
+| **Real GDI** (`A261RX1Q020SBEA`) | Growth | Income-side cross-check on GDP |
+| **Employment Cost Index** (`ECIALLCIV`) | Inflation | Wage/compensation pressure |
+| **Core PCE Price Index** (`PCEPILFE`) | Inflation | The Fed's preferred inflation gauge |
+
+Each card shows:
+- **QoQ SAAR** — the quarter-over-quarter change, **annualized** (how BEA reports "GDP grew at X%")
+- **YoY** — the year-over-year rate (4 quarters)
+- **Accel (pp)** — whether the annualized run-rate is speeding up or slowing vs the prior quarter (colored green/red on a market-adjusted basis — a rising inflation run-rate reads red)
+
+> This panel is currently **reference-only** — it does not yet move the 4-Phase call. The Phase quad still comes from monthly breadth.
+
+---
+
+## Regime Conviction (Fractal Geometry)
+
+Borrowed from the Fractal Box Analysis Tool, the **Regime Conviction** card applies Mandelbrot fractal geometry to the *shape* of each indicator's YoY trajectory — not to answer "which phase," but "**how much should we trust the phase?**"
+
+| Measure | Meaning | Reads as |
+|---------|---------|----------|
+| **Hurst exponent** | Is the trajectory persistent or mean-reverting? | H > 0.55 trending (trust it) · H < 0.45 choppy (fragile) |
+| **Box-counting dimension** | How clean vs chaotic is the path? | D ≈ 1.1 smooth · D → 2.0 space-filling chop |
+| **Trend R²** | How well does a straight line fit the YoY series? | High = clean, persistent · Low = noise |
+
+These aggregate (indicator-weighted) into a **0–100 conviction score** and a **transition-risk** label:
+- **High conviction** — the regime sits on a persistent, clean trajectory; the Phase call is trustworthy
+- **Low conviction / elevated transition risk** — the path is choppy or mean-reverting; a regime change is more likely, so size positions accordingly
+
+*Heuristic, not a precise measurement — Hurst and box-dimension on ~2–3 years of monthly data are directional gauges of persistence, not laboratory constants.*
 
 ---
 
@@ -195,37 +233,25 @@ Signals are mixed — the economy is shifting between regimes.
 
 | Source | What It Provides | Refresh |
 |--------|-----------------|---------|
-| **FRED** (St. Louis Fed) | All 30 economic indicator series (YoY changes, levels, diffusion indices) | Every 60 minutes |
+| **FRED** (St. Louis Fed) | 12 monthly US indicator series (YoY, levels, diffusion) + 5 quarterly hard-data series (GDP, PCE, GDI, ECI, core PCE) for the QoQ/YoY panel and the fractal conviction overlay | Every 60 minutes |
 | **Financial Modeling Prep** | US Treasury yields (3M, 2Y, 10Y, 30Y), 2s10s spread, economic calendar | Every 60 minutes |
 
 ---
 
-## The 30 Tracked Indicators
+## The 12 Tracked Indicators (US)
 
-### US (12 indicators)
-- Building Permits, Housing Starts, Philly Fed Manufacturing, Initial Jobless Claims, Consumer Sentiment, Unemployment Rate, CPI, Core CPI, Nonfarm Payrolls, Retail Sales, Industrial Production, Durable Goods Orders
+**Monthly diffusion table:** Building Permits, Housing Starts, Philly Fed Manufacturing, Initial Jobless Claims, Consumer Sentiment, Unemployment Rate, CPI, Core CPI, Nonfarm Payrolls, Retail Sales, Industrial Production, Durable Goods Orders
 
-### UK (4 indicators)
-- Consumer Confidence, Unemployment Rate, CPI, Composite Leading Indicator
-
-### EU (5 indicators)
-- Consumer Confidence, Unemployment Rate, Germany CLI, France CLI, CPI
-
-### Japan (5 indicators)
-- CLI, CPI, Consumer Confidence, Unemployment Rate, Industrial Production
-
-### APAC (2 indicators)
-- Australia CLI, Australia Unemployment Rate
-
-### LATAM (2 indicators)
-- Mexico Unemployment Rate, Brazil CLI
+**Quarterly hard-data panel (QoQ SAAR / YoY):** Real GDP, Real PCE, Real GDI, Employment Cost Index, Core PCE Price Index
 
 ---
 
 ## Quick-Start Checklist
 
 1. **Check the Phase** — Look at the stats bar to see which of the 4 phases (or Transitional) the economy is in
-2. **Review Breadth** — Are most growth indicators accelerating or decelerating? Same for inflation
-3. **Scan the Scores** — Green rows are bullish; red rows are bearish. Sort by score to find the strongest/weakest signals
-4. **Check the Calendar** — See what upcoming data releases could shift the picture
-5. **Position Accordingly** — Use the phase-based sector and asset guidance above to align your portfolio
+2. **Check Conviction** — The Regime Conviction score tells you how much to trust that Phase call; low conviction = elevated transition risk
+3. **Review Breadth** — Are most growth indicators accelerating or decelerating? Same for inflation
+4. **Read the Quarterly panel** — QoQ SAAR and YoY on the hard data (GDP, PCE, GDI, ECI, core PCE)
+5. **Scan the Scores** — Green rows are bullish; red rows are bearish. Sort by score to find the strongest/weakest signals
+6. **Check the Calendar** — See what upcoming data releases could shift the picture
+7. **Position Accordingly** — Use the phase-based sector and asset guidance above to align your portfolio
