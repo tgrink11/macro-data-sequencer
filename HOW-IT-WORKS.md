@@ -93,7 +93,7 @@ Each card shows:
 - **YoY** — the year-over-year rate (4 quarters)
 - **Accel (pp)** — whether the annualized run-rate is speeding up or slowing vs the prior quarter (colored green/red on a market-adjusted basis — a rising inflation run-rate reads red)
 
-> This panel is currently **reference-only** — it does not yet move the 4-Phase call. The Phase quad still comes from monthly breadth.
+> These quarterly series are **blended into the 4-Phase breadth** at their weights (GDP 2.0×, PCE/GDI/ECI 1.5×, Core PCE 2.0×), alongside the monthly indicators. A quarterly series counts as "accelerating" on its axis when its SAAR run-rate rises vs the prior quarter.
 
 ---
 
@@ -104,14 +104,14 @@ Borrowed from the Fractal Box Analysis Tool, the **Regime Conviction** card appl
 | Measure | Meaning | Reads as |
 |---------|---------|----------|
 | **Hurst exponent** | Is the trajectory persistent or mean-reverting? | H > 0.55 trending (trust it) · H < 0.45 choppy (fragile) |
-| **Box-counting dimension** | How clean vs chaotic is the path? | D ≈ 1.1 smooth · D → 2.0 space-filling chop |
 | **Trend R²** | How well does a straight line fit the YoY series? | High = clean, persistent · Low = noise |
+| **Box-counting dimension** | How clean vs chaotic is the path? | D ≈ 1.1 smooth · D → 2.0 chop *(computed but not scored — see note)* |
 
-These aggregate (indicator-weighted) into a **0–100 conviction score** and a **transition-risk** label:
+The **Hurst** and **Trend R²** measures aggregate (indicator-weighted) into a **0–100 conviction score** and a **transition-risk** label:
 - **High conviction** — the regime sits on a persistent, clean trajectory; the Phase call is trustworthy
 - **Low conviction / elevated transition risk** — the path is choppy or mean-reverting; a regime change is more likely, so size positions accordingly
 
-*Heuristic, not a precise measurement — Hurst and box-dimension on ~2–3 years of monthly data are directional gauges of persistence, not laboratory constants.*
+*Heuristic, not a precise measurement — Hurst on ~2–3 years of monthly data is a directional gauge of persistence, not a laboratory constant. Box-counting dimension is computed but **excluded from the score**: at monthly resolution it collapses to the D≈1.0 floor and can't discriminate. It can be reintroduced on a denser series.*
 
 ---
 
@@ -119,7 +119,6 @@ These aggregate (indicator-weighted) into a **0–100 conviction score** and a *
 
 ### Filters & Controls
 
-- **Region Tabs** (ALL, US, UK, EU, JAPAN, APAC, LATAM): Filter indicators by geography
 - **Signal Filter** (ALL, BEARISH, BULLISH): Show only negative or positive scoring indicators
 - **Search Bar**: Search by indicator name, region, or category
 - **Column Headers**: Click to sort by score, rate-of-change, YoY values, etc.

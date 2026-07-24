@@ -995,7 +995,7 @@
     <div class="hiw-score-row"><div class="hiw-score-swatch" style="background:var(--red-5)"></div><span style="font-family:var(--font-mono);font-size:12px;">-3.0 or lower — Strongly Bearish</span></div>
 
     <h3>Quarterly Regime (QoQ SAAR &amp; YoY)</h3>
-    <p>The panel under the stats bar adds NIPA/BLS hard data — Real GDP, Real PCE, Real GDI, Employment Cost Index, Core PCE — on two horizons: an <strong>annualized quarter-over-quarter run-rate (SAAR)</strong> and a <strong>year-over-year</strong> rate, plus whether the run-rate is accelerating. Reference-only for now — it does not yet move the Phase call.</p>
+    <p>The panel under the stats bar adds NIPA/BLS hard data — Real GDP, Real PCE, Real GDI, Employment Cost Index, Core PCE — on two horizons: an <strong>annualized quarter-over-quarter run-rate (SAAR)</strong> and a <strong>year-over-year</strong> rate, plus whether the run-rate is accelerating. These are <strong>blended into the Phase breadth</strong> at their weights — a quarterly series counts as accelerating when its SAAR run-rate rises vs the prior quarter.</p>
 
     <h3>Regime Conviction (Fractal Geometry)</h3>
     <p>Ported from the Fractal Box Analysis Tool: the <strong>Hurst exponent</strong>, <strong>box-counting fractal dimension</strong>, and <strong>trend R²</strong> of the YoY trajectories combine into a 0–100 conviction score. It doesn't pick the phase — it tells you how much to <em>trust</em> it. A persistent, clean trajectory (high Hurst, low fractal dimension) = high conviction; a choppy, mean-reverting one = low conviction / elevated transition risk.</p>
@@ -1081,7 +1081,8 @@ const SERIES_CONFIG = [
 // produces an annualized quarter-over-quarter run-rate (SAAR) AND a year-over-
 // year rate. Fetched at native quarterly frequency (PCEPILFE is monthly, so it
 // is aggregated to quarter-end via FRED frequency=q, aggregation=eop).
-// NOTE: display-only for now — these do NOT yet feed the Phase breadth engine.
+// These are shown in the quarterly panel AND blended into the Phase breadth
+// engine at the weights below (see renderStats → qAccelerating).
 const QUARTERLY_CONFIG = [
   { id: 'GDPC1',            name: 'Real GDP',              macro: 'growth',    inverse: false, weight: 2.0, limit: 44 },
   { id: 'PCECC96',          name: 'Real PCE',              macro: 'growth',    inverse: false, weight: 1.5, limit: 44 },
@@ -1432,7 +1433,7 @@ function getFilteredData() {
 // ─── QUARTERLY (QoQ SAAR / YoY) HARD-DATA MODEL ─────────────────────────────
 // Produces, per quarterly series: an annualized quarter-over-quarter run-rate
 // (SAAR), a year-over-year rate, and whether the SAAR is accelerating vs the
-// prior quarter. Display-only — does not feed the Phase breadth engine.
+// prior quarter. Shown in the quarterly panel and blended into Phase breadth.
 let quarterly = [];
 
 function computeQuarterly(config, observations) {
@@ -1521,6 +1522,10 @@ async function fetchAndComputeQuarterly() {
     }
     quarterly = out;
     renderQuarterly(out);
+    // Quarterly now feeds the Phase breadth + conviction — re-render the stats if
+    // the monthly table has already loaded. If it hasn't yet, its own renderTable()
+    // will pick up the (now-populated) global `quarterly`.
+    if (indicators.length) renderTable();
   } catch (e) {
     console.warn('Quarterly panel error:', e.message);
   }
@@ -1648,23 +1653,26 @@ function computeRegimeGeometry(data) {
 }
 
 // Turn an axis geometry into a 0–100 conviction score + label + transition risk.
+// NOTE: box-counting dimension (geo.D) is intentionally NOT used here. On ~2–3
+// years of monthly points it collapses to the D≈1.0 floor and can't discriminate,
+// so it only added a constant. Hurst (valid at this length) + trend R² carry the
+// signal. geo.D is still computed and can be re-introduced on a denser series.
 function convictionFromGeo(geo) {
   if (!geo) return { score: null, label: '—', risk: '—', cls: 'q-accel-dn' };
   const clamp01 = x => Math.max(0, Math.min(1, x));
   const persistence = clamp01((geo.H - 0.40) / 0.20);   // H .40→0, .50→.5, .60→1
   const cleanTrend  = clamp01(geo.r2);                  // regression fit 0–1
-  const lowChaos    = clamp01((1.60 - geo.D) / 0.50);   // D 1.6→0, 1.35→.5, 1.1→1
-  const score = Math.round(100 * (0.40 * persistence + 0.35 * cleanTrend + 0.25 * lowChaos));
+  const score = Math.round(100 * (0.55 * persistence + 0.45 * cleanTrend));
 
   let label, cls;
   if (score >= 66)      { label = 'HIGH';     cls = 'q-accel-up'; }
   else if (score >= 40) { label = 'MODERATE'; cls = ''; }
   else                  { label = 'LOW';      cls = 'q-accel-dn'; }
 
-  // Transition risk keys mainly off persistence + chop.
+  // Transition risk keys off persistence + trend cleanliness.
   let risk;
-  if (geo.H < 0.45 || geo.D > 1.60) risk = 'ELEVATED';
-  else if (geo.H > 0.55 && geo.D < 1.40) risk = 'LOW';
+  if (geo.H < 0.45 || geo.r2 < 0.25) risk = 'ELEVATED';
+  else if (geo.H > 0.55 && geo.r2 > 0.50) risk = 'LOW';
   else risk = 'MODERATE';
 
   return { score, label, risk, cls };
@@ -1699,16 +1707,35 @@ function renderStats(data) {
     return z > 0.1;  // small threshold to filter noise
   }
 
-  // Weighted breadth: US core (2x) and leading (1.5x) indicators
-  // carry more influence than standard international indicators (1x).
-  const growthAccel = growthData.filter(d => isAccelerating(d));
-  const inflAccel   = inflData.filter(d => isAccelerating(d));
-  const growthAccelCount  = growthAccel.length;
-  const inflAccelCount    = inflAccel.length;
-  const growthWeightTotal = growthData.reduce((s, d) => s + (d.weight || 1), 0);
-  const growthAccelWeight = growthAccel.reduce((s, d) => s + (d.weight || 1), 0);
-  const inflWeightTotal   = inflData.reduce((s, d) => s + (d.weight || 1), 0);
-  const inflAccelWeight   = inflAccel.reduce((s, d) => s + (d.weight || 1), 0);
+  // Quarterly hard data (GDP/PCE/GDI/ECI/core PCE) is blended into the breadth
+  // at its configured weight. A quarterly series counts as "accelerating" when
+  // its annualized QoQ run-rate is rising vs the prior quarter (direction-
+  // adjusted for any inverse series). Empty until the quarterly fetch resolves,
+  // so the Phase falls back to monthly-only breadth in the interim.
+  function qAccelerating(d) {
+    if (d.accel === null || d.accel === undefined) return false;
+    const dir = d.inverse ? -1 : 1;
+    return d.accel * dir > 0.1;
+  }
+  const qGrowth = quarterly.filter(d => d.macro === 'growth'    && d.accel !== null);
+  const qInfl   = quarterly.filter(d => d.macro === 'inflation' && d.accel !== null);
+  const sumW = arr => arr.reduce((s, d) => s + (d.weight || 1), 0);
+
+  // Weighted breadth: US core (2x) and leading (1.5x) monthly indicators plus
+  // the weighted quarterly hard data.
+  const growthAccel   = growthData.filter(isAccelerating);
+  const inflAccel     = inflData.filter(isAccelerating);
+  const qGrowthAccel  = qGrowth.filter(qAccelerating);
+  const qInflAccel    = qInfl.filter(qAccelerating);
+
+  const growthAccelCount  = growthAccel.length + qGrowthAccel.length;
+  const inflAccelCount     = inflAccel.length + qInflAccel.length;
+  const growthDataCount    = growthData.length + qGrowth.length;
+  const inflDataCount       = inflData.length + qInfl.length;
+  const growthWeightTotal = sumW(growthData) + sumW(qGrowth);
+  const growthAccelWeight = sumW(growthAccel) + sumW(qGrowthAccel);
+  const inflWeightTotal    = sumW(inflData) + sumW(qInfl);
+  const inflAccelWeight    = sumW(inflAccel) + sumW(qInflAccel);
   const growthBreadth = growthWeightTotal > 0 ? growthAccelWeight / growthWeightTotal : 0.5;
   const inflBreadth   = inflWeightTotal > 0 ? inflAccelWeight / inflWeightTotal : 0.5;
 
@@ -1765,7 +1792,7 @@ function renderStats(data) {
   const gConv = convictionFromGeo(geo.growth);
   const iConv = convictionFromGeo(geo.infl);
   const geoLine = geo.all
-    ? `Hurst ${geo.all.H.toFixed(2)} · Fractal D ${geo.all.D.toFixed(2)} · Trend R² ${geo.all.r2.toFixed(2)}`
+    ? `Hurst ${geo.all.H.toFixed(2)} · Trend R² ${geo.all.r2.toFixed(2)}`
     : 'Insufficient history';
   const convValCls = conv.score === null ? 'accent' : conv.score >= 66 ? 'green' : conv.score >= 40 ? 'accent' : 'red';
 
@@ -1788,12 +1815,12 @@ function renderStats(data) {
     <div class="stat-card">
       <div class="stat-label">GROWTH BREADTH</div>
       <div class="stat-value ${growthBreadth >= 0.5 ? 'green' : 'red'}">${gPct}%</div>
-      <div class="stat-sub">${growthAccelWeight.toFixed(1)}/${growthWeightTotal.toFixed(1)} wtd · ${growthAccelCount}/${growthData.length} ct · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
+      <div class="stat-sub">${growthAccelWeight.toFixed(1)}/${growthWeightTotal.toFixed(1)} wtd · ${growthAccelCount}/${growthDataCount} ct · ${gUp ? '▲ UP' : gDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">INFLATION BREADTH</div>
       <div class="stat-value ${inflBreadth <= 0.5 ? 'green' : 'red'}">${iPct}%</div>
-      <div class="stat-sub">${inflAccelWeight.toFixed(1)}/${inflWeightTotal.toFixed(1)} wtd · ${inflAccelCount}/${inflData.length} ct · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
+      <div class="stat-sub">${inflAccelWeight.toFixed(1)}/${inflWeightTotal.toFixed(1)} wtd · ${inflAccelCount}/${inflDataCount} ct · ${iUp ? '▲ UP' : iDn ? '▼ DN' : '— FLAT'}</div>
     </div>
     <div class="stat-card" style="flex:2.5;background:var(--bg2);">
       <div class="stat-label">MACRO REGIME</div>
