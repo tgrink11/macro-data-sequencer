@@ -20,11 +20,16 @@ export default async function handler(req, res) {
     if (auth !== `Bearer ${secret}`) return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const SUPABASE_URL = process.env.SUPABASE_URL;
-  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!SUPABASE_URL || !SERVICE_KEY) {
+  const RAW_URL = process.env.SUPABASE_URL;
+  const SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!RAW_URL || !SERVICE_KEY) {
     return res.status(500).json({ error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not configured' });
   }
+  // Be forgiving about how the URL was pasted: trim whitespace/newlines, add the
+  // protocol if missing, and drop any trailing slash so `${URL}/rest/v1/...` is
+  // always a valid absolute URL.
+  let SUPABASE_URL = RAW_URL.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(SUPABASE_URL)) SUPABASE_URL = 'https://' + SUPABASE_URL;
 
   try {
     const p = await computePhase();
@@ -69,6 +74,12 @@ export default async function handler(req, res) {
       conviction: p.conviction,
     });
   } catch (e) {
-    return res.status(500).json({ error: e.message });
+    // Surface the underlying cause + the (non-secret) URL we tried, so a
+    // misconfigured SUPABASE_URL is diagnosable without leaking the key.
+    return res.status(500).json({
+      error: e.message,
+      cause: e && e.cause ? String(e.cause.message || e.cause) : undefined,
+      supabase_url_seen: typeof SUPABASE_URL !== 'undefined' ? SUPABASE_URL : null,
+    });
   }
 }
