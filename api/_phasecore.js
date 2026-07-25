@@ -236,24 +236,23 @@ function directionLabel(b) { return b > 0.55 ? 'Accelerating' : b < 0.45 ? 'Dece
 // ─── TOP-LEVEL: fetch everything, return the full regime object ──────────────
 export async function computePhase(asOf) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
-
-  // Monthly + quarterly fetched together; per-series failures tolerated.
-  // asOf (optional) reconstructs the regime as it stood on a past date.
   const monthlySettled = await Promise.all(
     SERIES_CONFIG.map((c) =>
       fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, 36, asOf)
-        .then((obs) => ({ cfg: c, obs }))
-        .catch((err) => ({ cfg: c, obs: [], error: err.message }))
+        .then((obs) => ({ cfg: c, obs })).catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )
   );
   const quarterlySettled = await Promise.all(
     QUARTERLY_CONFIG.map((c) =>
       fetchFredSeries(c.id, null, c.frequency, c.aggregation_method, c.limit, asOf)
-        .then((obs) => ({ cfg: c, obs }))
-        .catch((err) => ({ cfg: c, obs: [], error: err.message }))
+        .then((obs) => ({ cfg: c, obs })).catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )
   );
+  return assemblePhase(monthlySettled, quarterlySettled);
+}
 
+// Assemble the regime object from already-fetched observations (live or vintage).
+function assemblePhase(monthlySettled, quarterlySettled) {
   const indicators = [], failed = [];
   for (const r of monthlySettled) {
     if (r.error) { failed.push({ id: r.cfg.id, error: r.error }); continue; }
@@ -325,4 +324,67 @@ export async function computePhase(asOf) {
       inflation_count: inflation.length,
     },
   };
+}
+
+// ─── VINTAGE BACKFILL ────────────────────────────────────────────────────────
+// One FRED call per series pulls its FULL point-in-time history across the whole
+// [start,end] window; every backfill date is then reconstructed in memory. This
+// keeps a many-date backfill at ~17 total FRED calls instead of 17-per-date, so
+// it never trips the 120-requests/minute rate limit.
+
+async function fetchVintageRows(seriesId, units, frequency, aggregation, start, end) {
+  const FRED_KEY = process.env.FRED_KEY;
+  let url = 'https://api.stlouisfed.org/fred/series/observations'
+    + `?series_id=${encodeURIComponent(seriesId)}`
+    + `&realtime_start=${start}&realtime_end=${end}&observation_end=${end}`
+    + '&sort_order=asc&limit=100000'
+    + `&api_key=${FRED_KEY}&file_type=json`;
+  if (units) url += `&units=${units}`;
+  if (frequency) url += `&frequency=${frequency}`;
+  if (aggregation) url += `&aggregation_method=${aggregation}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`FRED ${r.status} for ${seriesId}`);
+  const d = await r.json();
+  return (d.observations || [])
+    .filter((o) => o.value !== '.')
+    .map((o) => ({ date: o.date, value: parseFloat(o.value), rt: o.realtime_start }));
+}
+
+// Reconstruct a series as it was known on date D (newest-first, matching
+// fetchFredSeries output): for each observation date, take the latest vintage
+// whose realtime_start <= D; drop observations not yet published as of D.
+function seriesAsOf(rows, D) {
+  const byDate = new Map();
+  for (const row of rows) {
+    if (row.rt > D) continue;
+    const cur = byDate.get(row.date);
+    if (!cur || row.rt > cur.rt) byDate.set(row.date, row);
+  }
+  return [...byDate.values()]
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    .map((r) => ({ date: r.date, value: r.value }));
+}
+
+// Fetch every series' vintage history once. Returns { monthly: Map, quarterly: Map }.
+export async function fetchAllVintage(start, end) {
+  if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
+  const monthly = new Map(), quarterly = new Map();
+  await Promise.all([
+    ...SERIES_CONFIG.map((c) =>
+      fetchVintageRows(c.id, c.units, c.frequency, c.aggregation_method, start, end)
+        .then((rows) => monthly.set(c.id, rows)).catch(() => monthly.set(c.id, []))
+    ),
+    ...QUARTERLY_CONFIG.map((c) =>
+      fetchVintageRows(c.id, null, c.frequency, c.aggregation_method, start, end)
+        .then((rows) => quarterly.set(c.id, rows)).catch(() => quarterly.set(c.id, []))
+    ),
+  ]);
+  return { monthly, quarterly };
+}
+
+// Compute the regime as of date D from pre-fetched vintage data (no FRED calls).
+export function computePhaseAsOf(vintage, D) {
+  const monthlySettled = SERIES_CONFIG.map((c) => ({ cfg: c, obs: seriesAsOf(vintage.monthly.get(c.id) || [], D) }));
+  const quarterlySettled = QUARTERLY_CONFIG.map((c) => ({ cfg: c, obs: seriesAsOf(vintage.quarterly.get(c.id) || [], D) }));
+  return assemblePhase(monthlySettled, quarterlySettled);
 }
