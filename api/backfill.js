@@ -17,7 +17,7 @@
 //
 // Auth: same CRON_SECRET bearer as the daily snapshot.
 
-import { computePhase } from './_phasecore.js';
+import { fetchAllVintage, computePhaseAsOf } from './_phasecore.js';
 
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
@@ -37,7 +37,7 @@ export default async function handler(req, res) {
   const start = (req.query.start || '2026-01-06').slice(0, 10);
   const end = (req.query.end || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const stepDays = Math.max(1, parseInt(req.query.interval) || 7);
-  const cap = Math.max(1, Math.min(parseInt(req.query.max) || 12, 40));
+  const cap = Math.max(1, Math.min(parseInt(req.query.max) || 60, 400));
 
   const endT = new Date(end + 'T00:00:00Z').getTime();
   const dates = [];
@@ -48,10 +48,19 @@ export default async function handler(req, res) {
   }
   const next_start = t <= endT ? new Date(t).toISOString().slice(0, 10) : null;
 
+  // Fetch every series' full vintage history ONCE, then reconstruct each date in
+  // memory — ~17 FRED calls total regardless of how many dates we backfill.
+  let vintage;
+  try {
+    vintage = await fetchAllVintage(dates[0], dates[dates.length - 1]);
+  } catch (e) {
+    return res.status(502).json({ error: `Vintage fetch failed: ${e.message}` });
+  }
+
   const results = [];
   for (const asOf of dates) {
     try {
-      const p = await computePhase(asOf);
+      const p = computePhaseAsOf(vintage, asOf);
       const row = {
         snapshot_date: asOf,
         phase_num: p.phase_num, phase: p.phase, phase_name: p.phase_name,
