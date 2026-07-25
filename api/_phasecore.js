@@ -42,7 +42,12 @@ const PHASE_PLAYBOOK = {
 };
 
 // ─── FRED FETCH ──────────────────────────────────────────────────────────────
-async function fetchFredSeries(seriesId, units, frequency, aggregation, limit) {
+// asOf (YYYY-MM-DD, optional): request FRED's point-in-time VINTAGE — the series
+// exactly as it was published on that date (realtime_start=realtime_end=asOf),
+// capped to observations through asOf. This makes historical backfills honest:
+// both data revisions and release lags are respected (e.g. a value not yet
+// released as of asOf simply won't appear). Omit asOf for the latest data.
+async function fetchFredSeries(seriesId, units, frequency, aggregation, limit, asOf) {
   const FRED_KEY = process.env.FRED_KEY;
   let url = 'https://api.stlouisfed.org/fred/series/observations'
     + `?series_id=${encodeURIComponent(seriesId)}`
@@ -53,6 +58,7 @@ async function fetchFredSeries(seriesId, units, frequency, aggregation, limit) {
   if (units) url += `&units=${units}`;
   if (frequency) url += `&frequency=${frequency}`;
   if (aggregation) url += `&aggregation_method=${aggregation}`;
+  if (asOf) url += `&realtime_start=${asOf}&realtime_end=${asOf}&observation_end=${asOf}`;
   const r = await fetch(url);
   if (!r.ok) throw new Error(`FRED ${r.status} for ${seriesId}`);
   const d = await r.json();
@@ -228,20 +234,21 @@ function determinePhase(growthBreadth, inflBreadth) {
 function directionLabel(b) { return b > 0.55 ? 'Accelerating' : b < 0.45 ? 'Decelerating' : 'Mixed'; }
 
 // ─── TOP-LEVEL: fetch everything, return the full regime object ──────────────
-export async function computePhase() {
+export async function computePhase(asOf) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
 
   // Monthly + quarterly fetched together; per-series failures tolerated.
+  // asOf (optional) reconstructs the regime as it stood on a past date.
   const monthlySettled = await Promise.all(
     SERIES_CONFIG.map((c) =>
-      fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, 36)
+      fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, 36, asOf)
         .then((obs) => ({ cfg: c, obs }))
         .catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )
   );
   const quarterlySettled = await Promise.all(
     QUARTERLY_CONFIG.map((c) =>
-      fetchFredSeries(c.id, null, c.frequency, c.aggregation_method, c.limit)
+      fetchFredSeries(c.id, null, c.frequency, c.aggregation_method, c.limit, asOf)
         .then((obs) => ({ cfg: c, obs }))
         .catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )

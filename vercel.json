@@ -14,6 +14,9 @@
     },
     "api/snapshot.js": {
       "maxDuration": 30
+    },
+    "api/backfill.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
