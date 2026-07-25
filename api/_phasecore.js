@@ -370,8 +370,10 @@ export async function fetchAllVintage(start, end) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
   const monthly = new Map(), quarterly = new Map();
   await Promise.all([
+    // Always fetch RAW levels here (units=null). FRED's pc1 (YoY) transform is
+    // unreliable over a realtime WINDOW, so YoY is computed in code below.
     ...SERIES_CONFIG.map((c) =>
-      fetchVintageRows(c.id, c.units, c.frequency, c.aggregation_method, start, end)
+      fetchVintageRows(c.id, null, c.frequency, c.aggregation_method, start, end)
         .then((rows) => monthly.set(c.id, rows)).catch(() => monthly.set(c.id, []))
     ),
     ...QUARTERLY_CONFIG.map((c) =>
@@ -382,9 +384,28 @@ export async function fetchAllVintage(start, end) {
   return { monthly, quarterly };
 }
 
+// Convert a raw-level series (newest-first) to a YoY %-change series
+// (newest-first), matching FRED's pc1 transform so pc1-configured indicators
+// behave identically to the live path.
+function rawToYoYpct(obsNewestFirst) {
+  const chron = [...obsNewestFirst].reverse(); // oldest → newest
+  const out = [];
+  for (let i = 12; i < chron.length; i++) {
+    const base = chron[i - 12].value;
+    if (base) out.push({ date: chron[i].date, value: (chron[i].value / base - 1) * 100 });
+  }
+  return out.reverse(); // back to newest-first
+}
+
 // Compute the regime as of date D from pre-fetched vintage data (no FRED calls).
 export function computePhaseAsOf(vintage, D) {
-  const monthlySettled = SERIES_CONFIG.map((c) => ({ cfg: c, obs: seriesAsOf(vintage.monthly.get(c.id) || [], D) }));
+  const monthlySettled = SERIES_CONFIG.map((c) => {
+    const raw = seriesAsOf(vintage.monthly.get(c.id) || [], D); // raw levels, newest-first
+    // pc1 series: derive YoY% from levels; diffusion/rate series: pass raw
+    // (computeIndicator computes its own 12-month difference).
+    const obs = c.units === 'pc1' ? rawToYoYpct(raw) : raw;
+    return { cfg: c, obs };
+  });
   const quarterlySettled = QUARTERLY_CONFIG.map((c) => ({ cfg: c, obs: seriesAsOf(vintage.quarterly.get(c.id) || [], D) }));
   return assemblePhase(monthlySettled, quarterlySettled);
 }
