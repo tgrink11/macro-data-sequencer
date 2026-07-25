@@ -665,6 +665,23 @@
   .q-axis-growth { border-left: 3px solid var(--accent); }
   .q-axis-inflation { border-left: 3px solid #b8860b; }
 
+  /* Phase history timeline */
+  .ph-section { border-bottom: 1px solid var(--border); background: var(--bg2); }
+  .ph-header {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--text-dim);
+    padding: 8px 16px 4px; display: flex; align-items: center; gap: 8px;
+    justify-content: space-between; flex-wrap: wrap;
+  }
+  .ph-current { color: var(--text); font-weight: 600; text-transform: none; letter-spacing: 0; font-size: 11px; }
+  .ph-track { display: flex; align-items: stretch; gap: 1px; padding: 4px 16px 10px; height: 44px; overflow-x: auto; }
+  .ph-bar { flex: 1 1 3px; min-width: 3px; border-radius: 1px; opacity: 0.85; }
+  .ph-bar:hover { opacity: 1; outline: 1px solid var(--text); }
+  .ph-empty { padding: 4px 0; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+  .ph-legend { display: flex; gap: 12px; padding: 0 16px 10px; font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); flex-wrap: wrap; }
+  .ph-legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .ph-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+
   /* Economic Calendar */
   .cal-toggle {
     font-family: var(--font-mono);
@@ -917,6 +934,22 @@
     <span>QUARTERLY REGIME — QoQ (SAAR) &amp; YoY <span class="data-source-tag">FRED · NIPA/BLS</span></span>
   </div>
   <div class="q-grid" id="quarterly-grid"><!-- populated by JS --></div>
+</div>
+
+<!-- Phase history timeline (Supabase) -->
+<div class="ph-section" id="phase-history-section" style="display:none;">
+  <div class="ph-header">
+    <span>PHASE HISTORY <span class="data-source-tag">SUPABASE · DAILY</span></span>
+    <span class="ph-current" id="ph-current"></span>
+  </div>
+  <div class="ph-track" id="ph-track"><!-- populated by JS --></div>
+  <div class="ph-legend">
+    <span><i class="ph-dot" style="background:var(--accent)"></i>P1 Goldilocks</span>
+    <span><i class="ph-dot" style="background:var(--grn-4)"></i>P2 Reflation</span>
+    <span><i class="ph-dot" style="background:#b8860b"></i>P3 Stagflation</span>
+    <span><i class="ph-dot" style="background:var(--red-4)"></i>P4 Deflation</span>
+    <span><i class="ph-dot" style="background:var(--text-dim)"></i>Transitional</span>
+  </div>
 </div>
 
 <!-- FMP: Treasury Yields -->
@@ -2204,6 +2237,57 @@ function toggleHowItWorks() {
 
 // Fetch supplemental data in parallel (non-blocking — doesn't delay main FRED series).
 // Yield curve is now FRED (DGS series); calendar is still FMP.
+// ─── PHASE HISTORY (Supabase, read-only) ────────────────────────────────────
+// Daily snapshots are written server-side by api/snapshot.js (service role).
+// The dashboard reads them with the public anon key (RLS = read-only), so this
+// key is safe to ship in the client.
+const SUPABASE_URL  = 'https://dcwidhndyplqzbdhurii.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRjd2lkaG5keXBscXpiZGh1cmlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMzEzOTcsImV4cCI6MjA5MjkwNzM5N30.pRLCWfcRJCvjeeCoQcanGb4cUiTdVlBzfEooq1rA0w0';
+const PHASE_COLORS  = { 1: 'var(--accent)', 2: 'var(--grn-4)', 3: '#b8860b', 4: 'var(--red-4)', 0: 'var(--text-dim)' };
+
+async function fetchPhaseHistory() {
+  const sec = document.getElementById('phase-history-section');
+  if (!sec) return;
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/phase_history`
+      + '?select=snapshot_date,phase_num,phase_name,growth_breadth,inflation_breadth,conviction,transition_risk'
+      + '&order=snapshot_date.asc&limit=200';
+    const r = await fetch(url, { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` } });
+    if (!r.ok) throw new Error('history ' + r.status);
+    renderPhaseHistory(await r.json());
+  } catch (e) {
+    console.warn('Phase history unavailable:', e.message);
+    sec.style.display = 'none';
+  }
+}
+
+function renderPhaseHistory(rows) {
+  const sec   = document.getElementById('phase-history-section');
+  const track = document.getElementById('ph-track');
+  const cur   = document.getElementById('ph-current');
+  if (!sec || !track) return;
+  sec.style.display = 'block';
+
+  if (!rows || !rows.length) {
+    track.innerHTML = '<div class="ph-empty">Phase history will begin populating from the daily snapshot — check back after the next run.</div>';
+    if (cur) cur.textContent = '';
+    return;
+  }
+
+  // Current streak: walk back from the newest while the phase is unchanged.
+  const last = rows[rows.length - 1];
+  let sinceIdx = rows.length - 1;
+  while (sinceIdx > 0 && rows[sinceIdx - 1].phase_num === last.phase_num) sinceIdx--;
+  if (cur) cur.textContent = `Current: ${last.phase_name} · since ${rows[sinceIdx].snapshot_date} (${rows.length - sinceIdx}d)`;
+
+  track.innerHTML = rows.map(d => {
+    const c = PHASE_COLORS[d.phase_num] !== undefined ? PHASE_COLORS[d.phase_num] : 'var(--text-dim)';
+    const t = `${d.snapshot_date} · ${d.phase_name} · G ${d.growth_breadth}% / I ${d.inflation_breadth}%`
+            + (d.conviction != null ? ` · conv ${d.conviction}` : '');
+    return `<div class="ph-bar" style="background:${c}" title="${t}"></div>`;
+  }).join('');
+}
+
 async function fetchFmpData() {
   await Promise.allSettled([fetchYieldCurve(), fetchCalendar()]);
 }
@@ -2278,7 +2362,7 @@ function renderFreshness(data) {
 async function refreshData() {
   const btn = document.querySelector('.refresh-btn');
   if (btn) { btn.textContent = 'LOADING...'; btn.disabled = true; }
-  await Promise.allSettled([fetchAndCompute(), fetchFmpData()]);
+  await Promise.allSettled([fetchAndCompute(), fetchFmpData(), fetchPhaseHistory()]);
   if (btn) { btn.textContent = 'REFRESH'; btn.disabled = false; }
 }
 
@@ -2289,7 +2373,7 @@ setInterval(() => refreshData(), 60 * 60 * 1000);
 (async () => {
   try {
     // FRED indicators + FMP supplemental data in parallel
-    await Promise.allSettled([fetchAndCompute(), fetchFmpData()]);
+    await Promise.allSettled([fetchAndCompute(), fetchFmpData(), fetchPhaseHistory()]);
   } catch (e) {
     showError('Failed to load data: ' + e.message);
     console.error('Init error:', e);

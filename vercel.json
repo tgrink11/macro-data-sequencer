@@ -11,8 +11,17 @@
     },
     "api/phase.js": {
       "maxDuration": 15
+    },
+    "api/snapshot.js": {
+      "maxDuration": 30
     }
   },
+  "crons": [
+    {
+      "path": "/api/snapshot",
+      "schedule": "0 12 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
