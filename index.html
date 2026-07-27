@@ -1185,6 +1185,56 @@ function nextRelBadge(id) {
   return nr ? ` · <span style="color:var(--text-dim)">next ~${nr}</span>` : '';
 }
 
+// ─── FMP CROSS-CHECK / BACKUP ────────────────────────────────────────────────
+// FMP carries the same government-source data as FRED (not fresher), so it is a
+// redundancy check, not a fresher feed. We fetch FMP's latest observation for
+// the series it covers and compare dates: normally they AGREE. If FRED ever
+// falls behind FMP (a frozen series or an API outage), the row + FEED STATUS
+// flag it. Names below are the FMP economic-indicator ids that return data;
+// core CPI, building permits, and the Philly Fed survey aren't in FMP's set.
+const FMP_XCHECK = {
+  CPIAUCSL: 'CPI',
+  UNRATE:   'unemploymentRate',
+  RSAFS:    'retailSales',
+  PAYEMS:   'totalNonfarmPayroll',
+  INDPRO:   'industrialProductionTotalIndex',
+  DGORDER:  'durableGoods',
+  UMCSENT:  'consumerSentiment',
+  HOUST:    'newPrivatelyOwnedHousingUnitsStartedTotalUnits',
+  ICSA:     'initialClaims',
+};
+let fmpLatest = {};  // fredId -> { date, value } — latest FMP observation
+
+async function fetchFmpCrosscheck() {
+  const ids = Object.keys(FMP_XCHECK);
+  const today = new Date();
+  const from = new Date(today); from.setMonth(from.getMonth() - 4);
+  const fmtD = d => d.toISOString().slice(0, 10);
+  const qs = `&from=${fmtD(from)}&to=${fmtD(today)}`;
+  await Promise.all(ids.map(id =>
+    fetch(`/api/fmp?type=indicator&name=${FMP_XCHECK[id]}${qs}`)
+      .then(async r => {
+        const d = await r.json();
+        if (Array.isArray(d) && d[0] && d[0].date) {
+          fmpLatest[id] = { date: String(d[0].date).slice(0, 10), value: d[0].value };
+        }
+      })
+      .catch(() => {})
+  ));
+  if (indicators.length) renderTable();  // surface the cross-check once FRED is loaded
+}
+
+// Tooltip row comparing FMP's latest to FRED's for a series.
+function xcheckRow(id, fredDate) {
+  const f = fmpLatest[id];
+  if (!f) return '';
+  let label, color;
+  if (fredDate && f.date > fredDate)      { label = `⚠ FMP newer · ${f.date}`;  color = '#d9b45a'; }
+  else if (fredDate && f.date < fredDate) { label = `FMP behind · ${f.date}`;   color = 'var(--text-dim)'; }
+  else                                    { label = `✓ agrees · ${f.date}`;     color = 'var(--grn-4)'; }
+  return `<div class="tooltip-row"><span>Cross-check (FMP)</span><span class="tooltip-val" style="color:${color}">${label}</span></div>`;
+}
+
 // ─── FRED DATA FETCHING ─────────────────────────────────────────────────────
 async function fetchFredSeries(seriesId, units, limit, frequency, aggregation) {
   let url = `/api/fred?series=${seriesId}&limit=${limit || 24}`;
@@ -2052,6 +2102,7 @@ function showTooltip(e, i) {
     <div class="tooltip-row"><span>FRED Series</span><span class="tooltip-val">${d.id || '—'}</span></div>
     <div class="tooltip-row"><span>Latest Observation</span><span class="tooltip-val">${d.latest_date || '—'}${d.latest_date && daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)} days ago)` : ''}</span></div>
     <div class="tooltip-row"><span>Next Release (FMP)</span><span class="tooltip-val">${nextReleaseFor(d.id) || '—'}</span></div>
+    ${xcheckRow(d.id, d.latest_date)}
   `;
   tt.style.display = 'block';
   posTooltip(e);
@@ -2415,13 +2466,25 @@ function renderFreshness(data) {
   if (!worst) { stripe.style.display = 'none'; return; }
   stripe.style.display = '';
 
+  // Backup cross-check: has FRED fallen behind FMP anywhere? (frozen series / outage)
+  const behind = [];
+  for (const d of data) {
+    const f = fmpLatest[d.id];
+    if (f && d.latest_date && f.date > d.latest_date) behind.push(d.name);
+  }
+
   if (worst.over > 0) {
     // A series is genuinely late — surface it.
     valueEl.textContent = `${worst.over}d overdue`;
     valueEl.style.color = 'var(--red-4)';
     subEl.textContent = `${worst.name} · last ${worst.date}`;
+  } else if (behind.length) {
+    // FRED is behind the FMP backup on at least one series.
+    valueEl.textContent = 'Check';
+    valueEl.style.color = '#d9b45a';
+    subEl.textContent = `FRED behind FMP · ${behind.length} series (${behind[0]})`;
   } else {
-    // Everything is within its normal release window.
+    // Everything is within its normal release window and agrees with FMP.
     valueEl.textContent = 'Current';
     valueEl.style.color = 'var(--grn-4)';
     subEl.textContent = soonest ? `next: ${soonest.name} ~${soonest.date}` : 'all series within normal release lag';
@@ -2431,7 +2494,7 @@ function renderFreshness(data) {
 async function refreshData() {
   const btn = document.querySelector('.refresh-btn');
   if (btn) { btn.textContent = 'LOADING...'; btn.disabled = true; }
-  await Promise.allSettled([fetchAndCompute(), fetchFmpData(), fetchPhaseHistory()]);
+  await Promise.allSettled([fetchAndCompute(), fetchFmpData(), fetchPhaseHistory(), fetchFmpCrosscheck()]);
   if (btn) { btn.textContent = 'REFRESH'; btn.disabled = false; }
 }
 
@@ -2442,7 +2505,7 @@ setInterval(() => refreshData(), 60 * 60 * 1000);
 (async () => {
   try {
     // FRED indicators + FMP supplemental data in parallel
-    await Promise.allSettled([fetchAndCompute(), fetchFmpData(), fetchPhaseHistory()]);
+    await Promise.allSettled([fetchAndCompute(), fetchFmpData(), fetchPhaseHistory(), fetchFmpCrosscheck()]);
   } catch (e) {
     showError('Failed to load data: ' + e.message);
     console.error('Init error:', e);
