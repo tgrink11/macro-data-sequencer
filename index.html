@@ -1201,7 +1201,9 @@ const FMP_XCHECK = {
   DGORDER:  'durableGoods',
   UMCSENT:  'consumerSentiment',
   HOUST:    'newPrivatelyOwnedHousingUnitsStartedTotalUnits',
-  ICSA:     'initialClaims',
+  // ICSA is intentionally left out: FRED gives us a MONTHLY-aggregated value
+  // while FMP returns raw WEEKLY claims, so a date comparison is apples-to-
+  // oranges (FMP always looks "newer"). Cross-checking it would false-positive.
 };
 let fmpLatest = {};  // fredId -> { date, value } — latest FMP observation
 
