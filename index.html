@@ -905,7 +905,7 @@
       <button class="refresh-btn" onclick="refreshData()" title="Refresh data from FRED">REFRESH</button>
     </div>
     <div id="freshness-stripe" style="display:none;border-left:1px solid var(--border);padding-left:24px;">
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">OLDEST DATA</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;">FEED STATUS</div>
       <div id="freshness-value" style="font-family:var(--font-mono);font-size:14px;color:var(--text-bright);">—</div>
       <div id="freshness-sub" class="last-updated" style="margin-top:2px;">—</div>
     </div>
@@ -1136,6 +1136,54 @@ let indicators = [];
 let filters = { region: 'ALL', signal: 'ALL', search: '' };
 let sortKey = 'score';
 let sortDir = 1;
+let calendarEvents = [];  // FMP economic calendar, kept for next-release lookups
+
+// ─── FRESHNESS MODEL ─────────────────────────────────────────────────────────
+// Each series publishes on its own cadence, so a flat "old = stale" rule cries
+// wolf on normal release lag (e.g. quarterly-ish sources sit 80+ days by design).
+// STALE_AFTER is the age in DAYS at which a series is genuinely OVERDUE — its
+// next release should already have happened. Below that it's simply "current,
+// awaiting the next print." Tuned to each series' real publication schedule.
+const STALE_AFTER = {
+  PERMIT: 85, HOUST: 85, GACDFSA066MSFRBPHI: 58, ICSA: 45, UMCSENT: 100,
+  UNRATE: 70, PAYEMS: 70, CPIAUCSL: 82, CPILFESL: 82, RSAFS: 82,
+  INDPRO: 85, DGORDER: 95,
+};
+const staleAfter = id => STALE_AFTER[id] || 60;
+
+// Keywords to find a series' next scheduled release in the FMP calendar.
+const RELEASE_KW = {
+  PERMIT: ['building permits'], HOUST: ['housing starts'],
+  GACDFSA066MSFRBPHI: ['philadelphia fed manufacturing', 'philly fed business'],
+  ICSA: ['initial jobless claims'], UMCSENT: ['michigan consumer sentiment'],
+  UNRATE: ['unemployment rate'], PAYEMS: ['non farm payrolls', 'nonfarm payrolls'],
+  CPIAUCSL: ['inflation rate', 'consumer price index'],
+  CPILFESL: ['core inflation rate', 'core consumer price'],
+  RSAFS: ['retail sales'], INDPRO: ['industrial production'],
+  DGORDER: ['durable goods orders'],
+};
+
+// Earliest upcoming US release date (YYYY-MM-DD) for a series, from the FMP
+// calendar; null if unknown (calendar not loaded, or no matching event).
+function nextReleaseFor(id) {
+  const kws = RELEASE_KW[id];
+  if (!kws || !calendarEvents.length) return null;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let best = null;
+  for (const e of calendarEvents) {
+    if (e.country !== 'US') continue;
+    const name = (e.event || '').toLowerCase();
+    if (!kws.some(k => name.includes(k))) continue;
+    const d = (e.date || '').slice(0, 10);
+    if (!d || d < todayStr) continue;
+    if (!best || d < best) best = d;
+  }
+  return best;
+}
+function nextRelBadge(id) {
+  const nr = nextReleaseFor(id);
+  return nr ? ` · <span style="color:var(--text-dim)">next ~${nr}</span>` : '';
+}
 
 // ─── FRED DATA FETCHING ─────────────────────────────────────────────────────
 async function fetchFredSeries(seriesId, units, limit, frequency, aggregation) {
@@ -1293,12 +1341,14 @@ function daysSince(iso) {
   return Math.floor((Date.now() - then) / 86400000);
 }
 
-// Color class for an age in days. >45d red, >30d amber, else neutral.
-function ageClass(days) {
+// Color class for a series' age RELATIVE to its own release cadence: only
+// flagged once it's overdue past when its next print should have landed.
+function ageClass(days, id) {
   if (days === null || days === undefined) return 'c-n';
-  if (days > 45) return 'c-r3';
-  if (days > 30) return 'c-r2';
-  return 'c-n';
+  const limit = staleAfter(id);
+  if (days > limit) return 'c-r3';        // overdue
+  if (days > limit - 12) return 'c-r2';   // due imminently
+  return 'c-n';                            // current
 }
 
 // ─── MARKET-INTERPRETATION SIGN ──────────────────────────────────────────────
@@ -1939,7 +1989,7 @@ function renderTable() {
       <td>
         <div class="indicator-cell" title="${d.name}">
           ${d.name}
-          <div class="indicator-region">${d.region} · ${d.category}${d.latest_date ? ` · <span class="${ageClass(daysSince(d.latest_date))}" style="padding:0;background:transparent;">as of ${d.latest_date}${daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)}d)` : ''}</span>` : ''}</div>
+          <div class="indicator-region">${d.region} · ${d.category}${d.latest_date ? ` · <span class="${ageClass(daysSince(d.latest_date), d.id)}" style="padding:0;background:transparent;">as of ${d.latest_date}${daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)}d)` : ''}</span>` : ''}${nextRelBadge(d.id)}</div>
         </div>
       </td>
       <td class="score-cell">
@@ -2001,6 +2051,7 @@ function showTooltip(e, i) {
     <div class="tooltip-row"><span>12M Avg YoY</span><span class="tooltip-val">${fmt(d.trend_12)}</span></div>
     <div class="tooltip-row"><span>FRED Series</span><span class="tooltip-val">${d.id || '—'}</span></div>
     <div class="tooltip-row"><span>Latest Observation</span><span class="tooltip-val">${d.latest_date || '—'}${d.latest_date && daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)} days ago)` : ''}</span></div>
+    <div class="tooltip-row"><span>Next Release (FMP)</span><span class="tooltip-val">${nextReleaseFor(d.id) || '—'}</span></div>
   `;
   tt.style.display = 'block';
   posTooltip(e);
@@ -2162,13 +2213,15 @@ async function fetchCalendar() {
   try {
     const today = new Date();
     const end = new Date(today);
-    end.setDate(end.getDate() + 14);
+    end.setDate(end.getDate() + 45);  // wide enough to catch each series' next release
     const fmtD = d => d.toISOString().slice(0, 10);
     const resp = await fetch(`/api/fmp?type=calendar&from=${fmtD(today)}&to=${fmtD(end)}`);
     if (!resp.ok) throw new Error(`FMP calendar ${resp.status}`);
     const data = await resp.json();
     if (!data || data.length === 0) return;
+    calendarEvents = data;                    // keep for next-release lookups
     renderCalendar(data);
+    if (indicators.length) renderTable();     // surface next-release dates + feed status
   } catch (e) {
     console.warn('FMP calendar fetch failed:', e.message);
   }
@@ -2347,23 +2400,32 @@ function renderFreshness(data) {
   const subEl   = document.getElementById('freshness-sub');
   if (!stripe || !valueEl || !subEl) return;
 
-  let oldest = null;
+  // Rank by how overdue each series is versus its OWN release cadence — not by
+  // raw age. Normal lag (e.g. a source that publishes ~monthly) is "current."
+  let worst = null;    // most overdue series
+  let soonest = null;  // nearest upcoming release across all series
   for (const d of data) {
     const days = daysSince(d.latest_date);
     if (days === null) continue;
-    if (!oldest || days > oldest.days) oldest = { days, name: d.name, date: d.latest_date };
+    const over = days - staleAfter(d.id);
+    if (!worst || over > worst.over) worst = { over, days, name: d.name, date: d.latest_date };
+    const nr = nextReleaseFor(d.id);
+    if (nr && (!soonest || nr < soonest.date)) soonest = { date: nr, name: d.name };
   }
-  if (!oldest) { stripe.style.display = 'none'; return; }
-
+  if (!worst) { stripe.style.display = 'none'; return; }
   stripe.style.display = '';
-  valueEl.textContent = `${oldest.days} day${oldest.days === 1 ? '' : 's'}`;
-  subEl.textContent = `${oldest.name} · ${oldest.date}`;
-  // Color: red >45d, amber >30d, default otherwise.
-  valueEl.style.color = oldest.days > 45
-    ? 'var(--red-4)'
-    : oldest.days > 30
-      ? '#d9b45a'
-      : 'var(--text-bright)';
+
+  if (worst.over > 0) {
+    // A series is genuinely late — surface it.
+    valueEl.textContent = `${worst.over}d overdue`;
+    valueEl.style.color = 'var(--red-4)';
+    subEl.textContent = `${worst.name} · last ${worst.date}`;
+  } else {
+    // Everything is within its normal release window.
+    valueEl.textContent = 'Current';
+    valueEl.style.color = 'var(--grn-4)';
+    subEl.textContent = soonest ? `next: ${soonest.name} ~${soonest.date}` : 'all series within normal release lag';
+  }
 }
 
 async function refreshData() {
