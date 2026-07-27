@@ -32,7 +32,10 @@ export default async function handler(req, res) {
       if (!name || !/^[A-Za-z_ ]{1,80}$/.test(name)) {
         return res.status(400).json({ error: 'Invalid indicator name' });
       }
-      url = `https://financialmodelingprep.com/api/v3/economic?name=${encodeURIComponent(name)}&apikey=${FMP_KEY}`;
+      // FMP deprecated /api/v3/economic (returns []). Use the "stable" API.
+      url = `https://financialmodelingprep.com/stable/economic-indicators?name=${encodeURIComponent(name)}&apikey=${FMP_KEY}`;
+      if (from && dateRe.test(from)) url += `&from=${from}`;
+      if (to && dateRe.test(to)) url += `&to=${to}`;
     } else {
       return res.status(400).json({ error: 'Invalid type. Use: calendar, indicator' });
     }
