@@ -234,11 +234,15 @@ function determinePhase(growthBreadth, inflBreadth) {
 function directionLabel(b) { return b > 0.55 ? 'Accelerating' : b < 0.45 ? 'Decelerating' : 'Mixed'; }
 
 // ─── TOP-LEVEL: fetch everything, return the full regime object ──────────────
+// Observations per monthly series on the live path (see computePhase). The
+// vintage path trims to the same length so backfills score identically.
+const LIVE_MONTHLY_LIMIT = 36;
+
 export async function computePhase(asOf) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
   const monthlySettled = await Promise.all(
     SERIES_CONFIG.map((c) =>
-      fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, 36, asOf)
+      fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, LIVE_MONTHLY_LIMIT, asOf)
         .then((obs) => ({ cfg: c, obs })).catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )
   );
@@ -439,12 +443,16 @@ export function computePhaseAsOf(vintage, D) {
     // pc1 series: derive YoY% from levels; diffusion/rate series: pass raw
     // (computeIndicator computes its own 12-month difference).
     const obs = c.units === 'pc1' ? rawToYoYpct(raw) : raw;
-    return { cfg: c, obs };
+    // Keep only as many observations as the live path fetches (limit 36 in
+    // computePhase). roc_std, yoy_std, trend and Hurst are all computed over
+    // the whole series, so feeding full history made backfilled scores differ
+    // from what the dashboard showed on the same day.
+    return { cfg: c, obs: obs.slice(0, LIVE_MONTHLY_LIMIT) };
   });
   const quarterlySettled = QUARTERLY_CONFIG.map((c) => {
     let raw = seriesAsOf(vintage.quarterly.get(c.id) || [], D);
     if (c.frequency) raw = aggregateEop(raw, c.frequency);
-    return { cfg: c, obs: raw };
+    return { cfg: c, obs: raw.slice(0, c.limit) };
   });
   return assemblePhase(monthlySettled, quarterlySettled);
 }
