@@ -1,8 +1,10 @@
 // api/fmp.js — Vercel Serverless proxy for Financial Modeling Prep API
-// Supplements FRED with the economic calendar (forward-looking releases).
-// Yield curve was migrated to FRED (DGS3MO/DGS2/DGS10/DGS30) for source
-// consistency, so the 'treasury' type is no longer accepted here.
-// FMP_KEY stays server-side (env var). CDN-cached 1 hour.
+// Supplements FRED with the economic calendar (forward-looking releases) and
+// same-day Treasury yields. FRED remains the yield-curve source of record, but
+// it publishes each day's curve the NEXT business day; FMP's treasury-rates
+// carries Treasury's official daily par curve the same afternoon (~4–6pm ET),
+// so the dashboard overlays it on top of FRED when it's newer.
+// FMP_KEY stays server-side (env var). CDN-cached 1 hour (treasury: 15 min).
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -16,13 +18,14 @@ export default async function handler(req, res) {
 
   const { type, from, to, name } = req.query;
   if (!type) {
-    return res.status(400).json({ error: 'type param required (calendar, indicator)' });
+    return res.status(400).json({ error: 'type param required (calendar, indicator, treasury)' });
   }
 
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
 
   try {
     let url;
+    let maxAge = 3600;
 
     if (type === 'calendar') {
       url = `https://financialmodelingprep.com/api/v3/economic_calendar?apikey=${FMP_KEY}`;
@@ -36,8 +39,13 @@ export default async function handler(req, res) {
       url = `https://financialmodelingprep.com/stable/economic-indicators?name=${encodeURIComponent(name)}&apikey=${FMP_KEY}`;
       if (from && dateRe.test(from)) url += `&from=${from}`;
       if (to && dateRe.test(to)) url += `&to=${to}`;
+    } else if (type === 'treasury') {
+      url = `https://financialmodelingprep.com/stable/treasury-rates?apikey=${FMP_KEY}`;
+      if (from && dateRe.test(from)) url += `&from=${from}`;
+      if (to && dateRe.test(to)) url += `&to=${to}`;
+      maxAge = 900; // Treasury posts once a day; 15 min picks it up promptly
     } else {
-      return res.status(400).json({ error: 'Invalid type. Use: calendar, indicator' });
+      return res.status(400).json({ error: 'Invalid type. Use: calendar, indicator, treasury' });
     }
 
     const response = await fetch(url);
@@ -50,7 +58,7 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    res.setHeader('Cache-Control', 's-maxage=3600, max-age=300');
+    res.setHeader('Cache-Control', `s-maxage=${maxAge}, max-age=300`);
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.status(200).json(data);
 
