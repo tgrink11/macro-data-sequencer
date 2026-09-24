@@ -610,6 +610,7 @@
   }
   .fmp-bar {
     display: flex;
+    flex-wrap: wrap;  /* the yield bar has 8 cells; wrap instead of overflowing narrow screens */
     align-items: center;
     gap: 0;
     padding: 0;
@@ -2181,12 +2182,43 @@ function clearError() {
 // 3M / 2Y / 10Y / 30Y constant-maturity treasuries from FRED. Daily series with
 // T-1 publication. Replaced FMP treasury endpoint for source consistency with
 // the rest of the macro stack — and no more separate provider key needed.
+// Curve STATE (display only — not part of the phase score). Classified on
+// monthly-average spreads so a one-day dip can't flip it:
+//   inverted       monthly avg < 0
+//   re-steepening  back ≥ 0 but inverted within the last 18 months — the
+//                  window in which recessions have historically begun
+//   flat           0–50bp, no recent inversion
+//   normal         > 50bp, no recent inversion
+// A warning needs re-steepening, or 3+ inverted months out of the last 12.
+function classifyCurve(monthlyChron) {
+  const n = monthlyChron.length;
+  if (n < 13) return null;
+  const cur = monthlyChron[n - 1].value;
+  let invertedMonths12 = 0;
+  for (let i = Math.max(0, n - 12); i < n; i++) if (monthlyChron[i].value < 0) invertedMonths12++;
+  let monthsSinceInverted = null;
+  for (let i = n - 1; i >= 0 && n - 1 - i <= 18; i--) {
+    if (monthlyChron[i].value < 0) { monthsSinceInverted = n - 1 - i; break; }
+  }
+  const state = cur < 0 ? 'inverted'
+    : monthsSinceInverted !== null ? 're-steepening'
+    : cur < 0.5 ? 'flat' : 'normal';
+  const warning = state === 're-steepening' || (state === 'inverted' && invertedMonths12 >= 3);
+  return { state, warning, invertedMonths12, monthsSinceInverted };
+}
+
 async function fetchYieldCurve() {
   try {
     const ids = ['DGS3MO', 'DGS2', 'DGS10', 'DGS30'];
-    const series = await Promise.all(
-      ids.map(id => fetchFredSeries(id, null, 10))
-    );
+    const [series, m3mMonthly, m2yMonthly] = await Promise.all([
+      Promise.all(ids.map(id => fetchFredSeries(id, null, 10))),
+      // Monthly-average spreads for the curve state (newest-first from FRED).
+      fetchFredSeries('T10Y3M', null, 30, 'm', 'avg').catch(() => []),
+      fetchFredSeries('T10Y2Y', null, 30, 'm', 'avg').catch(() => []),
+    ]);
+    const chron = obs => obs.slice().sort((a, b) => a.date.localeCompare(b.date));
+    const curve3m = classifyCurve(chron(m3mMonthly));
+    const curve2y = classifyCurve(chron(m2yMonthly));
     // fetchFredSeries returns chronologically-mapped values; FRED itself
     // sorts desc, so the *first* observation per series is the most recent.
     // But fetchFredSeries doesn't reverse — it just maps. Verify ordering
@@ -2199,7 +2231,8 @@ async function fetchYieldCurve() {
       m3:  { latest: m3Obs[0],  prior: m3Obs[1]  || null },
       y2:  { latest: y2Obs[0],  prior: y2Obs[1]  || null },
       y10: { latest: y10Obs[0], prior: y10Obs[1] || null },
-      y30: { latest: y30Obs[0] || null, prior: y30Obs[1] || null }
+      y30: { latest: y30Obs[0] || null, prior: y30Obs[1] || null },
+      curve3m, curve2y
     });
   } catch (e) {
     console.warn('FRED yield curve fetch failed:', e.message);
@@ -2216,6 +2249,19 @@ function renderYieldCurve(d) {
   const y10v = d.y10.latest?.value;
   const y30v = d.y30.latest?.value;
   const spread = (y10v !== undefined && y2v !== undefined) ? ((y10v - y2v) * 100).toFixed(0) : null;
+  const spread3m = (y10v !== undefined && m3v !== undefined) ? ((y10v - m3v) * 100).toFixed(0) : null;
+  const STATE_LABEL = { normal: 'Normal', flat: 'Flat', inverted: 'Inverted', 're-steepening': 'Re-steepening' };
+  const c3 = d.curve3m, c2 = d.curve2y;
+  // Fall back to the old sign-only label if the monthly history didn't load.
+  const label2s10s = c2 ? STATE_LABEL[c2.state] : (spread !== null ? (parseFloat(spread) >= 0 ? 'Normal' : 'Inverted') : '');
+  let signalNote = '', signalTitle = '';
+  if (c3) {
+    if (c3.state === 're-steepening') signalNote = `Warning · inverted ${c3.monthsSinceInverted}mo ago`;
+    else if (c3.state === 'inverted') signalNote = c3.warning ? `Warning · ${c3.invertedMonths12} of last 12mo` : 'New inversion';
+    else signalNote = 'No warning';
+    signalTitle = 'Based on the monthly-average 10Y–3M spread. Warning = re-steepening within 18 months of an inversion, '
+      + 'or inverted 3+ of the last 12 months. The curve leads growth by ~6–18 months. Context only — not part of the phase score.';
+  }
   const headerDate = d.y10.latest?.date || d.y2.latest?.date || '—';
 
   function chg(curObj, priorObj) {
@@ -2255,10 +2301,20 @@ function renderYieldCurve(d) {
       <div class="fmp-bar-sub">${chg(d.y30.latest, d.y30.prior)}</div>
     </div>
     <div class="fmp-bar-item">
+      <div class="fmp-bar-label">3M10Y SPREAD</div>
+      <div class="fmp-bar-value ${spread3m !== null ? (parseFloat(spread3m) >= 0 ? 'spread-pos' : 'spread-neg') : ''}">${spread3m !== null ? (spread3m >= 0 ? '+' : '') + spread3m + 'bp' : '—'}</div>
+      <div class="fmp-bar-sub">${c3 ? STATE_LABEL[c3.state] : ''}</div>
+    </div>
+    <div class="fmp-bar-item">
       <div class="fmp-bar-label">2s10s SPREAD</div>
       <div class="fmp-bar-value ${spread !== null ? (parseFloat(spread) >= 0 ? 'spread-pos' : 'spread-neg') : ''}">${spread !== null ? (spread >= 0 ? '+' : '') + spread + 'bp' : '—'}</div>
-      <div class="fmp-bar-sub">${spread !== null ? (parseFloat(spread) >= 0 ? 'Normal' : 'Inverted') : ''}</div>
+      <div class="fmp-bar-sub">${label2s10s}</div>
     </div>
+    ${c3 ? `<div class="fmp-bar-item" title="${signalTitle}">
+      <div class="fmp-bar-label">CURVE SIGNAL</div>
+      <div class="fmp-bar-value ${c3.warning ? 'spread-neg' : 'spread-pos'}">${c3.warning ? 'WARNING' : 'CLEAR'}</div>
+      <div class="fmp-bar-sub">${signalNote}</div>
+    </div>` : ''}
   `;
 }
 
