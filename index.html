@@ -2208,11 +2208,42 @@ function classifyCurve(monthlyChron) {
   return { state, warning, invertedMonths12, monthsSinceInverted };
 }
 
+// Financial conditions (display only — not part of the phase score; a
+// 2004–2026 point-in-time backtest found no accuracy gain from scoring
+// mortgage rates, real yields or NFCI). Compares the latest 10Y real yield
+// (DFII10) and 30Y mortgage rate (MORTGAGE30US) with their monthly average six
+// months earlier: an average move of +50bp or more reads TIGHTENING, −50bp or
+// less EASING. The Chicago Fed NFCI rides along as broad-conditions context
+// (negative = looser than average).
+function summarizeFinConditions(fc) {
+  const sixMonthsBefore = (latestDate, monthlyNewestFirst) => {
+    const [y, m] = latestDate.split('-').map(Number);
+    const t = y * 12 + (m - 1) - 6;
+    const key = `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}-01`;
+    return monthlyNewestFirst.find(o => o.date === key)?.value;
+  };
+  const change = (latest, monthly) => {
+    if (!latest.length || !monthly.length) return null;
+    const base = sixMonthsBefore(latest[0].date, monthly);
+    return base === undefined ? null : latest[0].value - base;
+  };
+  const dReal = change(fc.realLatest, fc.realMonthly);
+  const dMort = change(fc.mortLatest, fc.mortMonthly);
+  const moves = [dReal, dMort].filter(v => v !== null);
+  if (!moves.length) return null;
+  const avg = moves.reduce((a, b) => a + b, 0) / moves.length;
+  const state = avg >= 0.5 ? 'TIGHTENING' : avg <= -0.5 ? 'EASING' : 'STABLE';
+  return { state, dReal, dMort, nfci: fc.nfci[0]?.value ?? null,
+    real: fc.realLatest[0]?.value ?? null, mort: fc.mortLatest[0]?.value ?? null };
+}
+
 async function fetchYieldCurve() {
   try {
     const ids = ['DGS3MO', 'DGS2', 'DGS10', 'DGS30'];
     const fromD = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
-    const [series, m3mMonthly, m2yMonthly, fmpRows] = await Promise.all([
+    const newest = obs => obs.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const fredOpt = (...a) => fetchFredSeries(...a).then(newest).catch(() => []);
+    const [series, m3mMonthly, m2yMonthly, fmpRows, fc] = await Promise.all([
       Promise.all(ids.map(id => fetchFredSeries(id, null, 10))),
       // Monthly-average spreads for the curve state (newest-first from FRED).
       fetchFredSeries('T10Y3M', null, 30, 'm', 'avg').catch(() => []),
@@ -2220,6 +2251,13 @@ async function fetchYieldCurve() {
       // Same-day Treasury curve (newest-first). Optional: FRED alone still works.
       fetch(`/api/fmp?type=treasury&from=${fromD}`)
         .then(r => r.ok ? r.json() : []).then(d => Array.isArray(d) ? d : []).catch(() => []),
+      // Financial-conditions inputs (all optional).
+      Promise.all([
+        fredOpt('DFII10', null, 5), fredOpt('DFII10', null, 9, 'm', 'avg'),
+        fredOpt('MORTGAGE30US', null, 3), fredOpt('MORTGAGE30US', null, 9, 'm', 'avg'),
+        fredOpt('NFCI', null, 2),
+      ]).then(([realLatest, realMonthly, mortLatest, mortMonthly, nfci]) =>
+        summarizeFinConditions({ realLatest, realMonthly, mortLatest, mortMonthly, nfci })),
     ]);
     const chron = obs => obs.slice().sort((a, b) => a.date.localeCompare(b.date));
     const curve3m = classifyCurve(chron(m3mMonthly));
@@ -2245,7 +2283,7 @@ async function fetchYieldCurve() {
       y2:  { latest: y2Obs[0],  prior: y2Obs[1]  || null },
       y10: { latest: y10Obs[0], prior: y10Obs[1] || null },
       y30: { latest: y30Obs[0] || null, prior: y30Obs[1] || null },
-      curve3m, curve2y
+      curve3m, curve2y, fin: fc
     });
   } catch (e) {
     console.warn('FRED yield curve fetch failed:', e.message);
@@ -2264,7 +2302,11 @@ function renderYieldCurve(d) {
   const spread = (y10v !== undefined && y2v !== undefined) ? ((y10v - y2v) * 100).toFixed(0) : null;
   const spread3m = (y10v !== undefined && m3v !== undefined) ? ((y10v - m3v) * 100).toFixed(0) : null;
   const STATE_LABEL = { normal: 'Normal', flat: 'Flat', inverted: 'Inverted', 're-steepening': 'Re-steepening' };
-  const c3 = d.curve3m, c2 = d.curve2y;
+  const c3 = d.curve3m, c2 = d.curve2y, fin = d.fin;
+  const pp = v => (v === null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + 'pp');
+  const finTitle = fin ? `10Y real yield ${fin.real?.toFixed(2)}% (${pp(fin.dReal)} vs 6 months ago) · 30Y mortgage ${fin.mort?.toFixed(2)}% (${pp(fin.dMort)}) · `
+    + `Chicago Fed NFCI ${fin.nfci?.toFixed(2)} (${fin.nfci < 0 ? 'looser' : 'tighter'} than average). `
+    + 'TIGHTENING = real yield and mortgage rate up 50bp+ on average over 6 months. Context only — not part of the phase score.' : '';
   // Fall back to the old sign-only label if the monthly history didn't load.
   const label2s10s = c2 ? STATE_LABEL[c2.state] : (spread !== null ? (parseFloat(spread) >= 0 ? 'Normal' : 'Inverted') : '');
   let signalNote = '', signalTitle = '';
@@ -2332,6 +2374,11 @@ function renderYieldCurve(d) {
       <div class="fmp-bar-label">CURVE SIGNAL</div>
       <div class="fmp-bar-value ${c3.warning ? 'spread-neg' : 'spread-pos'}">${c3.warning ? 'WARNING' : 'CLEAR'}</div>
       <div class="fmp-bar-sub">${signalNote}</div>
+    </div>` : ''}
+    ${fin ? `<div class="fmp-bar-item" title="${finTitle}">
+      <div class="fmp-bar-label">FIN CONDITIONS</div>
+      <div class="fmp-bar-value ${fin.state === 'TIGHTENING' ? 'spread-neg' : fin.state === 'EASING' ? 'spread-pos' : ''}">${fin.state}</div>
+      <div class="fmp-bar-sub">Real 10Y ${pp(fin.dReal)} · Mtg ${pp(fin.dMort)} · 6m${fin.nfci !== null ? ` · NFCI ${fin.nfci.toFixed(2)}` : ''}</div>
     </div>` : ''}
   `;
 }
