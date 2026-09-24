@@ -2178,10 +2178,11 @@ function clearError() {
   if (banner) banner.style.display = 'none';
 }
 
-// ─── FRED YIELD CURVE ───────────────────────────────────────────────────────
-// 3M / 2Y / 10Y / 30Y constant-maturity treasuries from FRED. Daily series with
-// T-1 publication. Replaced FMP treasury endpoint for source consistency with
-// the rest of the macro stack — and no more separate provider key needed.
+// ─── YIELD CURVE ────────────────────────────────────────────────────────────
+// 3M / 2Y / 10Y / 30Y constant-maturity treasuries from FRED (source of
+// record; T-1 publication). Treasury's official daily curve is also pulled
+// from FMP, which carries it the same afternoon — when that row is newer than
+// FRED's latest, it's overlaid so the bar isn't a day stale on big-move days.
 // Curve STATE (display only — not part of the phase score). Classified on
 // monthly-average spreads so a one-day dip can't flip it:
 //   inverted       monthly avg < 0
@@ -2210,11 +2211,15 @@ function classifyCurve(monthlyChron) {
 async function fetchYieldCurve() {
   try {
     const ids = ['DGS3MO', 'DGS2', 'DGS10', 'DGS30'];
-    const [series, m3mMonthly, m2yMonthly] = await Promise.all([
+    const fromD = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+    const [series, m3mMonthly, m2yMonthly, fmpRows] = await Promise.all([
       Promise.all(ids.map(id => fetchFredSeries(id, null, 10))),
       // Monthly-average spreads for the curve state (newest-first from FRED).
       fetchFredSeries('T10Y3M', null, 30, 'm', 'avg').catch(() => []),
       fetchFredSeries('T10Y2Y', null, 30, 'm', 'avg').catch(() => []),
+      // Same-day Treasury curve (newest-first). Optional: FRED alone still works.
+      fetch(`/api/fmp?type=treasury&from=${fromD}`)
+        .then(r => r.ok ? r.json() : []).then(d => Array.isArray(d) ? d : []).catch(() => []),
     ]);
     const chron = obs => obs.slice().sort((a, b) => a.date.localeCompare(b.date));
     const curve3m = classifyCurve(chron(m3mMonthly));
@@ -2223,7 +2228,15 @@ async function fetchYieldCurve() {
     // sorts desc, so the *first* observation per series is the most recent.
     // But fetchFredSeries doesn't reverse — it just maps. Verify ordering
     // by checking the dates; FRED returns desc unless overridden.
-    const ordered = series.map(obs => obs.slice().sort((a, b) => b.date.localeCompare(a.date)));
+    const FMP_FIELD = { DGS3MO: 'month3', DGS2: 'year2', DGS10: 'year10', DGS30: 'year30' };
+    const ordered = series.map((obs, i) => {
+      const have = new Set(obs.map(o => o.date));
+      const field = FMP_FIELD[ids[i]];
+      const extra = fmpRows
+        .filter(r => r && r.date && !have.has(r.date) && Number.isFinite(parseFloat(r[field])))
+        .map(r => ({ date: r.date, value: parseFloat(r[field]), sameDay: true }));
+      return [...obs, ...extra].sort((a, b) => b.date.localeCompare(a.date));
+    });
     const [m3Obs, y2Obs, y10Obs, y30Obs] = ordered;
     if (!m3Obs.length || !y2Obs.length || !y10Obs.length) return;
 
@@ -2263,6 +2276,11 @@ function renderYieldCurve(d) {
       + 'or inverted 3+ of the last 12 months. The curve leads growth by ~6–18 months. Context only — not part of the phase score.';
   }
   const headerDate = d.y10.latest?.date || d.y2.latest?.date || '—';
+  // FRED posts T-1; a same-day row means Treasury's official close came via FMP.
+  const sourceTag = d.y10.latest?.sameDay ? 'TREASURY · SAME DAY' : 'FRED';
+  const sourceTitle = d.y10.latest?.sameDay
+    ? "Treasury's official daily par curve (via FMP), posted the same afternoon. FRED carries it from the next business day. Official par yields can differ by a few bp from intraday market quotes."
+    : 'FRED constant-maturity yields — prior business day close.';
 
   function chg(curObj, priorObj) {
     if (!curObj || !priorObj || curObj.value === undefined || priorObj.value === undefined) return '';
@@ -2277,7 +2295,7 @@ function renderYieldCurve(d) {
   section.style.display = 'block';
   bar.innerHTML = `
     <div class="fmp-bar-item">
-      <div class="fmp-bar-label">YIELD CURVE <span class="data-source-tag">FRED</span></div>
+      <div class="fmp-bar-label" title="${sourceTitle}">YIELD CURVE <span class="data-source-tag">${sourceTag}</span></div>
       <div class="fmp-bar-sub">${headerDate}</div>
     </div>
     <div class="fmp-bar-item">
