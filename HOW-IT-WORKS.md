@@ -127,7 +127,7 @@ The **Hurst** and **Trend R²** measures aggregate (indicator-weighted) into a *
 ### Key Panels
 
 - **Stats Bar**: Shows bullish/bearish counts, growth & inflation breadth percentages, and a visual quad grid highlighting the current phase
-- **Treasury Yields**: Live 3-month, 2-year, 10-year, and 30-year US Treasury yields plus the 2s10s spread
+- **Treasury Yields**: Live 3-month, 2-year, 10-year, and 30-year US Treasury yields, the 3M10Y and 2s10s spreads, and a **Curve Signal**. Each spread is labelled Normal / Flat / Inverted / Re-steepening based on monthly averages. The signal shows **WARNING** when the 3M10Y is re-steepening within 18 months of an inversion, or has been inverted 3+ of the last 12 months. The curve leads growth by roughly 6–18 months. It is context only and does **not** feed growth breadth or the Phase call: a 2001–2026 point-in-time backtest found that adding it to the score didn't reliably improve the growth call.
 - **Economic Calendar**: Upcoming high and medium-impact economic data releases over the next 14 days
 - **Sparklines**: Each indicator row includes a mini chart of its last 12 months of YoY data
 
@@ -232,8 +232,8 @@ Signals are mixed — the economy is shifting between regimes.
 
 | Source | What It Provides | Refresh |
 |--------|-----------------|---------|
-| **FRED** (St. Louis Fed) | 12 monthly US indicator series (YoY, levels, diffusion) + 5 quarterly hard-data series (GDP, PCE, GDI, ECI, core PCE) for the QoQ/YoY panel and the fractal conviction overlay | Every 60 minutes |
-| **Financial Modeling Prep** | US Treasury yields (3M, 2Y, 10Y, 30Y), 2s10s spread, economic calendar | Every 60 minutes |
+| **FRED** (St. Louis Fed) | 12 monthly US indicator series (YoY, levels, diffusion) + 5 quarterly hard-data series (GDP, PCE, GDI, ECI, core PCE) for the QoQ/YoY panel and the fractal conviction overlay; US Treasury yields (3M, 2Y, 10Y, 30Y) and the 3M10Y / 2s10s spreads | Every 60 minutes |
+| **Financial Modeling Prep** | Economic calendar | Every 60 minutes |
 
 ---
 
