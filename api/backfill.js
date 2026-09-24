@@ -90,5 +90,9 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(200).json({ processed: results.length, next_start, results });
+  // Surface any series whose vintage fetch failed instead of silently scoring
+  // without it (that is how ICSA/PCEPILFE went missing before).
+  return res.status(200).json({
+    processed: results.length, next_start, failed_series: vintage.failed || [], results,
+  });
 }

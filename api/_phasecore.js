@@ -234,11 +234,15 @@ function determinePhase(growthBreadth, inflBreadth) {
 function directionLabel(b) { return b > 0.55 ? 'Accelerating' : b < 0.45 ? 'Decelerating' : 'Mixed'; }
 
 // ─── TOP-LEVEL: fetch everything, return the full regime object ──────────────
+// Observations per monthly series on the live path (see computePhase). The
+// vintage path trims to the same length so backfills score identically.
+const LIVE_MONTHLY_LIMIT = 36;
+
 export async function computePhase(asOf) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
   const monthlySettled = await Promise.all(
     SERIES_CONFIG.map((c) =>
-      fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, 36, asOf)
+      fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, LIVE_MONTHLY_LIMIT, asOf)
         .then((obs) => ({ cfg: c, obs })).catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )
   );
@@ -366,22 +370,56 @@ function seriesAsOf(rows, D) {
 }
 
 // Fetch every series' vintage history once. Returns { monthly: Map, quarterly: Map }.
+//
+// Always fetch at NATIVE frequency. FRED rejects frequency aggregation over a
+// realtime WINDOW (400: "Frequency aggregation is only available ... when
+// realtime_start and realtime_end are equal"), and the .catch below used to
+// turn that into an empty series — silently dropping ICSA (weekly → monthly)
+// and PCEPILFE (monthly → quarterly) from every backfilled row. Aggregation
+// now happens per date in computePhaseAsOf via aggregateEop().
 export async function fetchAllVintage(start, end) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
-  const monthly = new Map(), quarterly = new Map();
+  const monthly = new Map(), quarterly = new Map(), failed = [];
   await Promise.all([
     // Always fetch RAW levels here (units=null). FRED's pc1 (YoY) transform is
     // unreliable over a realtime WINDOW, so YoY is computed in code below.
     ...SERIES_CONFIG.map((c) =>
-      fetchVintageRows(c.id, null, c.frequency, c.aggregation_method, start, end)
-        .then((rows) => monthly.set(c.id, rows)).catch(() => monthly.set(c.id, []))
+      fetchVintageRows(c.id, null, null, null, start, end)
+        .then((rows) => monthly.set(c.id, rows))
+        .catch((e) => { monthly.set(c.id, []); failed.push({ id: c.id, error: e.message }); })
     ),
     ...QUARTERLY_CONFIG.map((c) =>
-      fetchVintageRows(c.id, null, c.frequency, c.aggregation_method, start, end)
-        .then((rows) => quarterly.set(c.id, rows)).catch(() => quarterly.set(c.id, []))
+      fetchVintageRows(c.id, null, null, null, start, end)
+        .then((rows) => quarterly.set(c.id, rows))
+        .catch((e) => { quarterly.set(c.id, []); failed.push({ id: c.id, error: e.message }); })
     ),
   ]);
-  return { monthly, quarterly };
+  return { monthly, quarterly, failed };
+}
+
+// End-of-period aggregation of a newest-first native series, matching what
+// FRED's live `aggregation_method=eop` returns (verified against the API):
+//   'm' (weekly → monthly): last observation in each month, INCLUDING the
+//       current partial month.
+//   'q' (monthly → quarterly): the quarter's third-month value; a quarter
+//       without its third month yet is omitted (FRED returns '.').
+// Periods are dated on their first day, like FRED.
+function aggregateEop(obsNewestFirst, frequency) {
+  const byPeriod = new Map();
+  for (const o of obsNewestFirst) {
+    const y = o.date.slice(0, 4);
+    const mo = Number(o.date.slice(5, 7));
+    let key;
+    if (frequency === 'm') key = `${y}-${String(mo).padStart(2, '0')}-01`;
+    else if (frequency === 'q') {
+      if (mo % 3 !== 0) continue; // only the quarter-end month carries the eop value
+      key = `${y}-${String(mo - 2).padStart(2, '0')}-01`;
+    } else return obsNewestFirst;
+    if (!byPeriod.has(key)) byPeriod.set(key, o.value); // newest-first → first seen is period-end
+  }
+  return [...byPeriod.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
+    .map(([date, value]) => ({ date, value }));
 }
 
 // Convert a raw-level series (newest-first) to a YoY %-change series
@@ -400,12 +438,21 @@ function rawToYoYpct(obsNewestFirst) {
 // Compute the regime as of date D from pre-fetched vintage data (no FRED calls).
 export function computePhaseAsOf(vintage, D) {
   const monthlySettled = SERIES_CONFIG.map((c) => {
-    const raw = seriesAsOf(vintage.monthly.get(c.id) || [], D); // raw levels, newest-first
+    let raw = seriesAsOf(vintage.monthly.get(c.id) || [], D); // raw levels, newest-first
+    if (c.frequency) raw = aggregateEop(raw, c.frequency);
     // pc1 series: derive YoY% from levels; diffusion/rate series: pass raw
     // (computeIndicator computes its own 12-month difference).
     const obs = c.units === 'pc1' ? rawToYoYpct(raw) : raw;
-    return { cfg: c, obs };
+    // Keep only as many observations as the live path fetches (limit 36 in
+    // computePhase). roc_std, yoy_std, trend and Hurst are all computed over
+    // the whole series, so feeding full history made backfilled scores differ
+    // from what the dashboard showed on the same day.
+    return { cfg: c, obs: obs.slice(0, LIVE_MONTHLY_LIMIT) };
   });
-  const quarterlySettled = QUARTERLY_CONFIG.map((c) => ({ cfg: c, obs: seriesAsOf(vintage.quarterly.get(c.id) || [], D) }));
+  const quarterlySettled = QUARTERLY_CONFIG.map((c) => {
+    let raw = seriesAsOf(vintage.quarterly.get(c.id) || [], D);
+    if (c.frequency) raw = aggregateEop(raw, c.frequency);
+    return { cfg: c, obs: raw.slice(0, c.limit) };
+  });
   return assemblePhase(monthlySettled, quarterlySettled);
 }
