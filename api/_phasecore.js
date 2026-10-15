@@ -68,6 +68,9 @@ async function fetchFredSeries(seriesId, units, frequency, aggregation, limit, a
 }
 
 // ─── MONTHLY INDICATOR + SCORING (mirrors index.html) ────────────────────────
+// 'YYYY-MM-DD' → same day one year earlier.
+function yearAgo(date) { return `${Number(date.slice(0, 4)) - 1}${date.slice(4)}`; }
+
 function computeIndicator(config, observations) {
   const obs = [...observations].reverse();
   const rawValues = obs.map((o) => o.value);
@@ -80,7 +83,15 @@ function computeIndicator(config, observations) {
     yoy = rawValues; yoyDates = dates;
   } else {
     yoy = []; yoyDates = [];
-    for (let i = 12; i < n; i++) { yoy.push(rawValues[i] - rawValues[i - 12]); yoyDates.push(dates[i]); }
+    // Match the base by DATE (same month a year earlier), not by position:
+    // FRED series can have a missing month (e.g. Oct 2025, never published
+    // because of the shutdown), and counting back 12 rows across that gap
+    // compares against the wrong month.
+    const byDate = new Map(dates.map((d, i) => [d, rawValues[i]]));
+    for (let i = 0; i < n; i++) {
+      const base = byDate.get(yearAgo(dates[i]));
+      if (base !== undefined) { yoy.push(rawValues[i] - base); yoyDates.push(dates[i]); }
+    }
   }
   const yn = yoy.length;
   if (yn < 2) return null;
@@ -428,9 +439,10 @@ function aggregateEop(obsNewestFirst, frequency) {
 function rawToYoYpct(obsNewestFirst) {
   const chron = [...obsNewestFirst].reverse(); // oldest → newest
   const out = [];
-  for (let i = 12; i < chron.length; i++) {
-    const base = chron[i - 12].value;
-    if (base) out.push({ date: chron[i].date, value: (chron[i].value / base - 1) * 100 });
+  const byDate = new Map(chron.map((o) => [o.date, o.value]));
+  for (const o of chron) {
+    const base = byDate.get(yearAgo(o.date)); // by date, like FRED (see computeIndicator)
+    if (base) out.push({ date: o.date, value: (o.value / base - 1) * 100 });
   }
   return out.reverse(); // back to newest-first
 }

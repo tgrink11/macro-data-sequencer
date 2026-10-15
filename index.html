@@ -1311,8 +1311,13 @@ function computeIndicator(config, observations) {
   } else {
     yoy = [];
     yoyDates = [];
-    for (let i = 12; i < n; i++) {
-      const base = rawValues[i - 12];
+    // Match the base by DATE (same month a year earlier), not by position:
+    // FRED series can have a missing month (e.g. Oct 2025, never published
+    // because of the shutdown), and counting back 12 rows across that gap
+    // compares against the wrong month.
+    const byDate = new Map(dates.map((d, i) => [d, rawValues[i]]));
+    for (let i = 0; i < n; i++) {
+      const base = byDate.get(`${Number(dates[i].slice(0, 4)) - 1}${dates[i].slice(4)}`);
       if (base !== null && base !== undefined) {
         yoy.push(rawValues[i] - base);
         yoyDates.push(dates[i]);
