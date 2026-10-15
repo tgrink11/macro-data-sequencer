@@ -1107,7 +1107,9 @@ const SERIES_CONFIG = [
   // ICSA is weekly natively; aggregate to monthly using END-OF-PERIOD (last weekly print of the month)
   // rather than 'avg' so the latest reading reflects current conditions instead of a stale 4-week mean.
   { id: 'ICSA',                  name: 'Initial Jobless Claims (000s)',    region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 1.5, frequency: 'm', aggregation_method: 'eop' },
-  { id: 'UMCSENT',               name: 'Michigan Consumer Sentiment',      region: 'US',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  // FRED posts UMich a month late (licensing); fmpCalendar fills newer months
+  // from FMP's economic calendar (see applyCalendarOverlays).
+  { id: 'UMCSENT',               name: 'Michigan Consumer Sentiment',      region: 'US',    category: 'Consumer',        units: null,  inverse: false, macro: 'growth',    weight: 1.5, fmpCalendar: 'Michigan Consumer Sentiment' },
   { id: 'UNRATE',                name: 'Unemployment Rate',                region: 'US',    category: 'Labour',          units: null,  inverse: true,  macro: 'growth',    weight: 2.0 },
   { id: 'CPIAUCSL',              name: 'CPI All Items YoY %',             region: 'US',    category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
   { id: 'CPILFESL',              name: 'Core CPI (Ex Food & Energy) YoY %', region: 'US',  category: 'Inflation',       units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
@@ -2047,7 +2049,7 @@ function renderTable() {
       <td>
         <div class="indicator-cell" title="${d.name}">
           ${d.name}
-          <div class="indicator-region">${d.region} · ${d.category}${d.latest_date ? ` · <span class="${ageClass(daysSince(d.latest_date), d.id)}" style="padding:0;background:transparent;">as of ${d.latest_date}${daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)}d)` : ''}</span>` : ''}${nextRelBadge(d.id)}</div>
+          <div class="indicator-region">${d.region} · ${d.category}${d.latest_date ? ` · <span class="${ageClass(daysSince(d.latest_date), d.id)}" style="padding:0;background:transparent;">as of ${d.latest_date}${daysSince(d.latest_date) !== null ? ` (${daysSince(d.latest_date)}d)` : ''}</span>` : ''}${d.sameDay ? ' · <span title="Latest month from FMP\'s economic calendar (same-day release); FRED posts this series a month late">FMP SAME DAY</span>' : ''}${nextRelBadge(d.id)}</div>
         </div>
       </td>
       <td class="score-cell">
@@ -2531,11 +2533,62 @@ async function fetchFmpData() {
   await Promise.allSettled([fetchYieldCurve(), fetchCalendar()]);
 }
 
+// ─── SAME-DAY OVERLAY (FMP economic calendar) ──────────────────────────────
+// Mirrors calendarToMonthly / withCalendarOverlay in api/_phasecore.js.
+// Monthly actuals for `event` ("<event> (Mon)" or "<event> Prel/Final (Mon)"),
+// newest-first; a month's latest release wins, so a prelim gives way to the final.
+function calendarToMonthly(rows, event) {
+  const MON = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+  const esc = event.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${esc}(?: (?:Prel|Final))? \\((\\w{3})\\)$`, 'i');
+  const byMonth = new Map();
+  for (const e of rows) {
+    if ((e.country && e.country !== 'US') || e.actual === null || e.actual === undefined) continue;
+    const m = re.exec(String(e.event || '').trim());
+    if (!m) continue;
+    const rel = String(e.date).slice(0, 10);
+    const mo = Number(rel.slice(5, 7));
+    if (MON[m[1].slice(0, 1).toUpperCase() + m[1].slice(1, 3).toLowerCase()] !== mo) continue;
+    const key = `${rel.slice(0, 7)}-01`;
+    const cur = byMonth.get(key);
+    if (!cur || rel > cur.rel) byMonth.set(key, { rel, value: Number(e.actual) });
+  }
+  return [...byMonth.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([date, v]) => ({ date, value: v.value }));
+}
+
+// Prepend calendar months newer than FRED's latest to each fmpCalendar series
+// (FRED stays the source of record for every month it has).
+async function applyCalendarOverlays(resultsMap) {
+  const cfgs = SERIES_CONFIG.filter(c => c.fmpCalendar);
+  if (!cfgs.length) return;
+  const to = new Date(), from = new Date(to);
+  from.setDate(from.getDate() - 75);
+  const fmtD = d => d.toISOString().slice(0, 10);
+  let rows;
+  try {
+    const r = await fetch(`/api/fmp?type=calendar&from=${fmtD(from)}&to=${fmtD(to)}`);
+    rows = await r.json();
+  } catch { return; }
+  if (!Array.isArray(rows)) return;
+  for (const c of cfgs) {
+    const res = resultsMap.get(c.id);
+    if (!res || res.error) continue;
+    const latest = res.observations[0] ? res.observations[0].date : '';
+    const newer = calendarToMonthly(rows, c.fmpCalendar).filter(o => o.date > latest);
+    if (!newer.length) continue;
+    res.observations = [...newer, ...res.observations].slice(0, c.limit || 36);
+    res.sameDay = true;
+  }
+}
+
 // ─── MAIN DATA PIPELINE ────────────────────────────────────────────────────
 async function fetchAndCompute() {
   clearError();
   fetchAndComputeQuarterly(); // parallel, non-blocking — doesn't delay the monthly table
   const resultsMap = await fetchAllSeries(SERIES_CONFIG, 10);
+  await applyCalendarOverlays(resultsMap);
   const computed = [];
   const errors = [];
 
@@ -2555,7 +2608,9 @@ async function fetchAndCompute() {
       });
       continue;
     }
-    computed.push(computeIndicator(cfg, result.observations));
+    const d = computeIndicator(cfg, result.observations);
+    d.sameDay = !!result.sameDay && d.latest_date === result.observations[0]?.date;
+    computed.push(d);
   }
 
   indicators = computed;

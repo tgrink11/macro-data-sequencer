@@ -14,7 +14,9 @@ const SERIES_CONFIG = [
   { id: 'HOUST',              name: 'Housing Starts YoY %',              units: 'pc1', inverse: false, macro: 'growth',    weight: 1.5 },
   { id: 'GACDFSA066MSFRBPHI', name: 'Philly Fed Manufacturing DI',       units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
   { id: 'ICSA',               name: 'Initial Jobless Claims (000s)',     units: null,  inverse: true,  macro: 'growth',    weight: 1.5, frequency: 'm', aggregation_method: 'eop' },
-  { id: 'UMCSENT',            name: 'Michigan Consumer Sentiment',       units: null,  inverse: false, macro: 'growth',    weight: 1.5 },
+  // FRED posts UMich a month late (licensing); fmpCalendar fills newer months
+  // from FMP's economic calendar on the live path (see withCalendarOverlay).
+  { id: 'UMCSENT',            name: 'Michigan Consumer Sentiment',       units: null,  inverse: false, macro: 'growth',    weight: 1.5, fmpCalendar: 'Michigan Consumer Sentiment' },
   { id: 'UNRATE',             name: 'Unemployment Rate',                 units: null,  inverse: true,  macro: 'growth',    weight: 2.0 },
   { id: 'CPIAUCSL',           name: 'CPI All Items YoY %',               units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
   { id: 'CPILFESL',           name: 'Core CPI (Ex Food & Energy) YoY %', units: 'pc1', inverse: false, macro: 'inflation', weight: 2.0 },
@@ -249,11 +251,65 @@ function directionLabel(b) { return b > 0.55 ? 'Accelerating' : b < 0.45 ? 'Dece
 // vintage path trims to the same length so backfills score identically.
 const LIVE_MONTHLY_LIMIT = 36;
 
+// ─── SAME-DAY OVERLAY (FMP economic calendar) ───────────────────────────────
+// Monthly actuals from FMP's calendar for `event`, as [{ date: 'YYYY-MM-01',
+// value }] newest-first. Matches "<event> (Mon)" or "<event> Prel/Final (Mon)";
+// a month's latest release wins, so a preliminary is replaced by the final.
+// The reference month is the release month (true for UMich: prelim and final
+// both publish within the survey month).
+async function fetchCalendarActuals(event) {
+  const FMP_KEY = process.env.FMP_KEY;
+  if (!FMP_KEY) return [];
+  const to = new Date(), from = new Date(to);
+  from.setDate(from.getDate() - 75);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const r = await fetch('https://financialmodelingprep.com/api/v3/economic_calendar'
+    + `?from=${fmt(from)}&to=${fmt(to)}&apikey=${FMP_KEY}`);
+  if (!r.ok) return [];
+  const rows = await r.json();
+  return calendarToMonthly(Array.isArray(rows) ? rows : [], event);
+}
+
+// Mirrored in index.html (keep the two in sync).
+function calendarToMonthly(rows, event) {
+  const MON = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+  const esc = event.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${esc}(?: (?:Prel|Final))? \\((\\w{3})\\)$`, 'i');
+  const byMonth = new Map();
+  for (const e of rows) {
+    if ((e.country && e.country !== 'US') || e.actual === null || e.actual === undefined) continue;
+    const m = re.exec(String(e.event || '').trim());
+    if (!m) continue;
+    const rel = String(e.date).slice(0, 10);
+    const mo = Number(rel.slice(5, 7));
+    if (MON[m[1].slice(0, 1).toUpperCase() + m[1].slice(1, 3).toLowerCase()] !== mo) continue;
+    const key = `${rel.slice(0, 7)}-01`;
+    const cur = byMonth.get(key);
+    if (!cur || rel > cur.rel) byMonth.set(key, { rel, value: Number(e.actual) });
+  }
+  return [...byMonth.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([date, v]) => ({ date, value: v.value }));
+}
+
+// Append calendar months newer than FRED's latest (FRED stays the source of
+// record for every month it has). Newest-first in and out.
+async function withCalendarOverlay(cfg, obs) {
+  if (!cfg.fmpCalendar) return obs;
+  try {
+    const latest = obs[0] ? obs[0].date : '';
+    const newer = (await fetchCalendarActuals(cfg.fmpCalendar)).filter((o) => o.date > latest);
+    return [...newer, ...obs].slice(0, LIVE_MONTHLY_LIMIT);
+  } catch { return obs; }
+}
+
 export async function computePhase(asOf) {
   if (!process.env.FRED_KEY) throw new Error('FRED_KEY not configured');
   const monthlySettled = await Promise.all(
     SERIES_CONFIG.map((c) =>
       fetchFredSeries(c.id, c.units, c.frequency, c.aggregation_method, LIVE_MONTHLY_LIMIT, asOf)
+        // Same-day overlay only on the live path; vintage backfills stay FRED-only.
+        .then((obs) => (asOf ? obs : withCalendarOverlay(c, obs)))
         .then((obs) => ({ cfg: c, obs })).catch((err) => ({ cfg: c, obs: [], error: err.message }))
     )
   );
